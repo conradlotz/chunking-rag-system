@@ -127,11 +127,11 @@ def _embed_filing(cur, embedder: Embedder, chunker, tokenizer, set_id, accession
     t0 = time.perf_counter()
     vectors = embedder.embed(texts)
     seconds = time.perf_counter() - t0
-    with cur.copy("copy rag.units (embedding_set_id,canonical_document_id,ordinal,start_char,end_char,token_count,"
-                  "node_id,item,embedding) from stdin") as copy:
-        for i, (s, e) in enumerate(layout.spans()):
-            node = layout.node_ordinals[i]
-            copy.write_row((set_id, doc_id, i, s, e, layout.token_counts[i], ids[node], items[node], _vec(vectors[i])))
+    cur.executemany(
+        "insert into rag.units (embedding_set_id,canonical_document_id,ordinal,start_char,end_char,token_count,"
+        "node_id,item,embedding) values (%s,%s,%s,%s,%s,%s,%s,%s,%s::extensions.halfvec(384))",
+        [(set_id, doc_id, i, s_, e_, layout.token_counts[i], ids[layout.node_ordinals[i]],
+          items[layout.node_ordinals[i]], _vec(vectors[i])) for i, (s_, e_) in enumerate(layout.spans())])
     cur.execute("update rag.units u set tsv=to_tsvector('english', "
                 "substr(d.text, u.start_char+1, u.end_char-u.start_char)) "
                 "from rag.canonical_documents d where d.id=u.canonical_document_id and u.canonical_document_id=%s "
