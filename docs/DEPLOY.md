@@ -1,7 +1,8 @@
 # Deploying the web app
 
 The app is Next.js (in `apps/web`), the data lives in Supabase, and only one person can sign in. Four things have to
-be in place. Steps 1 to 3 need an account owner; they can't be done from the code.
+be in place. Authorized CLI or dashboard access can perform deployment and migration setup.
+The deployed status and remaining owner-specific steps are recorded in [EXECUTION_STATUS.md](EXECUTION_STATUS.md).
 
 ## 1. Vercel project settings
 
@@ -27,11 +28,14 @@ Do **not** set `LAB_FIXTURE` on Vercel. The app refuses to start in fixture mode
 
 ## 2. Apply the database migrations
 
-In Supabase → SQL Editor, run these two files **in order** (they are re-runnable):
+For an initial setup only, run these two files **in order** in Supabase → SQL Editor.
+**The first migration is a destructive replacement, not a safe repeatable upgrade.**
+Count every existing `rag` table and inspect dependencies before running it; stop if any real data exists.
+Apply both files in a single transaction with an empty-table guard so failures roll back together.
 
 1. `supabase/migrations/20261010120000_canonical_hierarchy.sql`
    Creates the `rag` schema. It begins with `drop schema if exists rag cascade`, which removes the earlier, empty
-   `rag` tables only. Nothing in `public` (the other app's tables) is touched.
+   `rag` tables and dependent objects. Verify cross-schema dependencies before applying it.
 2. `supabase/migrations/20261010140000_app_api.sql`
    Creates the allow-list, the context builder and the read-only `public.lab_*` functions.
 

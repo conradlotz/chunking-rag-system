@@ -278,14 +278,20 @@ def _item_key(raw: str) -> str | None:
 def _candidates(blocks: list[Block]) -> list[tuple[int, str, str]]:
     found = []
     for idx, block in enumerate(blocks):
-        if block.kind != "text" or len(block.text) > 300 or block.is_list:
+        # Some issuers put an Item heading in a short, single-row layout table.
+        # Long tables (including tables of contents) remain ineligible.
+        if len(block.text) > 300 or block.is_list:
+            continue
+        if block.kind == "table" and (not block.rows or len(block.rows) != 1):
+            continue
+        if block.kind not in ("text", "table"):
             continue
         m = ITEM_RE.match(block.text)
         if not m:
             continue
         key = _item_key(m.group(1))
         if key:
-            found.append((idx, key, m.group(2).strip()))
+            found.append((idx, key, m.group(2).strip().lstrip("| ")))
     return found
 
 

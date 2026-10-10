@@ -20,7 +20,7 @@ coverage/
 playwright-report/
 test-results/
 
-# Pipeline caches and raw downloads (originals live in Supabase Storage)
+# Disposable local caches; authoritative originals remain at the SEC
 .cache/
 data/raw/
 

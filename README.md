@@ -22,7 +22,7 @@ retrieval quality, run over **1,000+ SEC 10-K filings**.
 - A UI that shows the engineering: corpus size, chunk and token counts, chunk
   boundaries, retrieval traces, source passages and benchmark results.
 
-> Status: design complete; v2 schema migration written (not yet applied); ingestion pipeline next.
+> Status: v2 schema applied and smoke-tested on hosted Supabase; Vercel production configuration repaired and deployed. Local SEC ingest has reached 100 FY2024–FY2025 filings, with telemetry recorded. Owner login/allow-list setup and the full embedding benchmark remain pending. See [execution status](docs/EXECUTION_STATUS.md).
 
 ## Documents
 
