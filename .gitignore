@@ -1,0 +1,30 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Node
+node_modules/
+.next/
+.vercel/
+coverage/
+playwright-report/
+test-results/
+
+# Pipeline caches and raw downloads (originals live in Supabase Storage)
+.cache/
+data/raw/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
