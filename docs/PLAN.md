@@ -2,106 +2,80 @@
 
 ## 1. Goal
 
-Build a working, publicly hosted research assistant over a **real library of
-published research reports**, and use it to answer one question with evidence:
+An experimental platform for measuring how document structure, chunking
+strategy, hybrid retrieval and **dynamic context construction** affect RAG
+retrieval quality and answer accuracy, run over at least **1,000 real SEC 10-K
+filings**, with a UI that exposes the engineering: corpus scale, chunk and token
+counts, chunk boundaries, retrieval traces, source passages and benchmark results.
 
-> Which chunking strategy returns the right passages most often, and does that
-> translate into more accurate, verifiable answers?
+Primary research question:
 
-The system is judged on retrieval quality and validated answers, not on
-chunking speed.
+> At an equal token budget, does retrieving small structure-aligned units and
+> expanding them through the document tree at query time deliver more of the
+> needed evidence than any static chunking layout?
 
-## 2. Use case
+## 2. Scope
 
-An analyst at a research firm has years of published reports. They need to:
-
-- find the passage that answers a question, with the exact source;
-- check a statement in a draft against what the research actually says;
-- pull every relevant figure on a topic across reports;
-- trust that the numbers shown are really in the sources.
-
-The corpus is real published research pulled from online repositories (see
-ARCHITECTURE.md section 3.0). There is no demo or synthetic content in the
-product; test fixtures exist only inside automated tests.
+| In scope | Out of scope (for now) |
+|----------|------------------------|
+| 10-K filings, S&P 500, FY2024–FY2025 (≥ 1,000 filings) | 10-Q, 8-K, other forms (the pipeline supports adding them) |
+| Items 1, 1A, 7, 7A | Financial statements and exhibits (figures come from XBRL) |
+| Six chunking layouts, four retrieval modes, four context policies | Fine-tuned embedding models |
+| Chunking, retrieval and answer benchmarks | Re-hosting SEC source documents |
+| Live serving on Vercel + Supabase free plan | Multi-tenant uploads |
 
 ## 3. Deliverables
 
 | # | Deliverable |
 |---|-------------|
-| D1 | Live web app on Vercel (Supabase backend) |
-| D2 | Public GitHub repo with README, architecture and test strategy |
-| D3 | Evaluation results: dashboard page and a one-page `docs/RESULTS.md` |
-| D4 | 3-minute walkthrough video |
+| D1 | Live web app: Corpus, Explorer, Retrieval Lab, Benchmarks, Ask, Method |
+| D2 | Public repo: pipeline, SQL, app, tests, CI |
+| D3 | Benchmark results committed and shown in the app; one-page `docs/RESULTS.md` |
+| D4 | 3–5 minute walkthrough video |
 
-## 4. Features
+## 4. Milestones
 
-### Core (committed)
+| # | Milestone | Exit criterion | Status |
+|---|-----------|----------------|--------|
+| M0 | Design | PLAN, ARCHITECTURE, TEST_STRATEGY reviewed | Done |
+| M1 | Schema v2 | Canonical hierarchical schema applied and smoke-tested, no data left behind | Migration written; awaiting approval to apply |
+| M2 | SEC connector + canonicaliser | 100 filings canonicalised; determinism and segmentation audits pass; measured storage per filing | |
+| M3 | Layouts + chunking benchmark | Six strategies over 100 filings; invariant tests green; first chunking benchmark | |
+| M4 | Scale to ≥ 1,000 | Full corpus ingested; failures explained; storage confirmed against the plan | |
+| M5 | Embeddings + indexes | Benchmark DB fully embedded; hosted serving index; embedding parity passes | |
+| M6 | Questions | Gold 50 reviewed; silver ≥ 300 generated and audited | |
+| M7 | Search + context construction | `search_chunks`, `build_context` with tests; serving parity and ANN recall measured | |
+| M8 | Retrieval benchmark | Dev tuning, then one test run; budget curves; H1 decided | |
+| M9 | Answer path + answer benchmark | Validators with mutation tests; judge calibrated; baselines | |
+| M10 | UI | Mock-up approved, then Corpus → Explorer → Retrieval Lab → Benchmarks → Ask | |
+| M11 | Publish | RESULTS.md, README, video | |
 
-| Feature | What it does |
-|---------|--------------|
-| **Ask** | Question in, validated answer out, with citation chips that open the source passage highlighted in its document |
-| **Compare** | The same question through two chunking strategies side by side, with ranks and shared passages |
-| **Chunk X-ray** | One document, each strategy's chunk boundaries drawn as coloured bands, answer passages overlaid |
-| **Results** | Evaluation dashboard: metrics by strategy and question type, confidence intervals, per-question drill-down |
+Benchmarks (M3, M8, M9) are not blocked by the UI (M10); the UI reads whatever
+results exist.
 
-### Proposed additions (to choose from)
-
-| Feature | What it does | Why it impresses | Effort |
-|---------|--------------|------------------|--------|
-| **Claim Checker** | Paste a sentence from a draft deck or report. Verdict: supported / contradicted / not in the corpus, with the evidence quoted | The "validate output" idea as a product feature; a real QA task for researchers | M |
-| **Stat Finder** | Ask for figures on a topic; get a table of every number found across reports (value, population, year, source), charted over time; every number passes the numeric grounding check | Very visual; turns documents into data; shows the validators earning their keep | M |
-| **Retrieval trace** | A "glass box" panel on every answer: vector rank, keyword rank, fusion score, gate decision, each validator's verdict, tokens, latency, cost | Shows engineering depth in one glance; cheap because the data already exists | S |
-| **Theme Map** | All passages clustered into themes on an interactive 2-D map, themes labelled by Claude; click a theme to read its passages | Thematic analysis is core qualitative research work | M–L |
-| **Research Brief** | Enter a topic; get a structured, cited brief (key findings, figures, caveats, gaps) exportable to PDF | Closest to a decision-support product | M |
-| **Live ingestion** | Add a URL or upload a PDF; watch it parsed, chunked five ways, embedded and searchable within a minute | Proves it's a real system rather than a fixed dataset | M–L |
-
-Recommendation: **Retrieval trace + Claim Checker + Stat Finder** on top of the
-core, with Theme Map as the stretch goal. All three reuse the same search and
-validators, so they add surface without adding risk to the evaluation.
-
-### Design direction
-
-Editorial "research desk" look: serif display type with a clean sans for UI,
-warm paper-white light theme and ink dark theme, generous whitespace, citation
-chips, smooth passage-highlight transitions, a ⌘K command palette, and
-charts that follow one consistent palette. Before building the UI, a clickable
-design mock-up is reviewed and approved.
-
-## 5. Milestones
-
-| # | Milestone | Output | Status |
-|---|-----------|--------|--------|
-| M0 | Design docs | PLAN, ARCHITECTURE, TEST_STRATEGY | Done |
-| M0.5 | Database schema | `rag` schema applied to Supabase, smoke-tested, test rows removed | Done |
-| M1 | Corpus | Connectors, snapshots in Storage, manifest, canonical text | |
-| M2 | Golden set | 40 questions with gold spans, reviewed, dataset checks green | |
-| M3 | Chunkers + loader | 5 strategies, invariant and property tests, loaded and verified | |
-| M4 | Retrieval eval | Dev-set results, CI regression gate, τ tuned | |
-| M5 | Answer path | `/api/answer`, validators, mutation tests, rate limits | |
-| M6 | Generation eval | Test-set run, judge calibration, baselines, statistics | |
-| M7 | UI | Core pages, then chosen additions, Playwright suite | |
-| M8 | Publish | RESULTS.md, README, video | |
-
-## 6. Decisions
+## 5. Decisions
 
 | Decision | Choice | Status |
 |----------|--------|--------|
-| Answer model | Claude (`claude-opus-5-5`) | Decided |
-| Hosting | Vercel (web) + Supabase (database, storage) | Decided |
-| Database | Existing Supabase project, isolated `rag` schema | Decided, applied |
-| Vector search | pgvector, exact search; hybrid with Postgres full-text + RRF | Decided |
-| Corpus | Real published research from online repositories | Decided |
-| Embeddings | Voyage AI (`voyage-3.5`, 1024-d) recommended | **Open** |
-| Corpus sources and topic | Which repositories and which subject area | **Open** |
-| Additional features | Which of the proposed additions | **Open** |
+| Corpus | SEC EDGAR 10-K, S&P 500, FY2024–25, ≥ 1,000 filings; sources stay at SEC | Decided |
+| Representation | Canonical document tree with frozen character offsets | Decided |
+| Strategies | `fixed`, `fixed_overlap`, `sentence`, `structural`, `semantic`, `hierarchical` as span layouts | Decided |
+| Embeddings | `gte-small` (Supabase built-in), 384-d, `halfvec`; same model offline | Decided |
+| Answer model / judge | `claude-opus-5-5` | Decided |
+| Hosting | Vercel + existing Supabase project (free plan), isolated `rag` schema | Decided |
+| Benchmarks | Separate benchmark Postgres with the same migrations; exact search | Decided |
+| Primary hypothesis | Dynamic context construction (TEST_STRATEGY H1) | Decided |
+| Hosted capacity | Re-measure after 100 filings; overflow → second free project or Pro, never a smaller corpus | Decided |
+| Showcase features beyond the core pages | Claim Checker, Stat Finder (XBRL-backed) | Open, after M10 |
 
-## 7. Risks
+## 6. Risks
 
 | Risk | Mitigation |
 |------|------------|
-| Public research may already be known to the model, inflating accuracy | Closed-book baseline; emphasise faithfulness and citation accuracy |
-| Small question set gives noisy comparisons | Paired design, bootstrap intervals, no winner claimed on overlapping intervals |
-| Labels unintentionally favour one strategy | Minimal sentence-level spans; questions in the researcher's own words |
-| Public URL runs up API costs | Per-IP and global rate limits, cached sample answers, spend cap |
-| Feature creep delays the evaluation | Evaluation milestones (M2–M6) come before additional features |
-| Shared Supabase project | Separate schema, no changes to existing tables, no Data API exposure |
+| 10-K HTML is inconsistent; item segmentation fails on some filings | Parser validation gates, audit sample, failures logged and counted, never silently dropped |
+| Hosted storage tighter than estimated | Measure at 100 filings; capacity plan in ARCHITECTURE section 10 |
+| Embedding volume (~260M tokens) is slow on CPU | GPU batch run, length-bucketed batching, cache; done once |
+| Model memorised public filings | Closed-book baseline; faithfulness and citation metrics |
+| Gold set too small for fine-grained claims | Silver XBRL set for numeric lookups; primary hypothesis tested only where the gold set has power |
+| Labels unintentionally favour a layout | Minimal sentence-level spans, analyst wording, strategy-blind labelling |
+| Shared Supabase project | Separate schema, no Data API exposure, no changes to other app's tables |

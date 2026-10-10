@@ -1,26 +1,36 @@
 # Chunking Lab
 
-A research assistant over a library of real published research reports, built
-to measure how **chunking strategy** affects whether the right passages come
-back, and whether the answers built on them are accurate and verifiable.
+An experimental platform for measuring how **document structure, chunking
+strategy, hybrid retrieval and dynamic context construction** affect RAG
+retrieval quality, run over **1,000+ SEC 10-K filings**.
 
-- Five chunking strategies (fixed, fixed with overlap, sentence, section-aware, semantic)
-- Keyword, vector and hybrid retrieval in Postgres (pgvector + full-text, rank fusion)
-- Answers from Claude with citations, checked by deterministic validators before display
-- An evaluation harness with a golden question set, retrieval and answer metrics,
-  baselines and confidence intervals
+- Source filings stay at the SEC. The platform owns a canonical, hierarchical
+  representation of each filing with stable character offsets.
+- Six chunking strategies are stored as span layouts over that representation,
+  so every strategy exists for every filing without copying text.
+- Three separate benchmarks: **chunking** (the chunks themselves), **retrieval**
+  (what reaches the model's context at a fixed token budget) and **answers**
+  (correctness, grounding, abstention).
+- Primary hypothesis: retrieving small structure-aligned units and expanding them
+  through the document tree at query time beats any static chunking layout at
+  equal token budget.
+- A UI that shows the engineering: corpus size, chunk and token counts, chunk
+  boundaries, retrieval traces, source passages and benchmark results.
 
-> Status: design and database schema complete; implementation in progress.
+> Status: design complete; v2 schema migration written (not yet applied); ingestion pipeline next.
 
 ## Documents
 
 | Document | Contents |
 |----------|----------|
-| [docs/PLAN.md](docs/PLAN.md) | Goal, use case, features, milestones, decisions |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, diagrams, data model, answer validation, ADRs |
-| [docs/TEST_STRATEGY.md](docs/TEST_STRATEGY.md) | Software tests, golden dataset, evaluation metrics, judge calibration, statistics, CI gates |
+| [docs/PLAN.md](docs/PLAN.md) | Goal, scope, milestones, decisions, risks |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Canonical representation, layouts, retrieval and context construction, storage, UI, ADRs |
+| [docs/TEST_STRATEGY.md](docs/TEST_STRATEGY.md) | Software tests, corpus checks, the three benchmarks, hypotheses, system checks, statistics, CI gates |
 
 ## Stack
 
-Python (pipeline, evaluation) · Next.js on Vercel (app) · Supabase Postgres +
-pgvector (storage, search) · Claude (answers, judging) · Voyage AI (embeddings)
+Python (pipeline, benchmarks) · Next.js on Vercel · Supabase Postgres +
+pgvector · `gte-small` embeddings (Supabase built-in) · Claude (answers, judging)
+
+Data: [SEC EDGAR](https://www.sec.gov/edgar). Filings are referenced by
+accession number and linked to their originals on sec.gov.
