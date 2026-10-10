@@ -3,3 +3,4 @@ data/raw
 .cache
 pipeline
 bench/results
+data/models
