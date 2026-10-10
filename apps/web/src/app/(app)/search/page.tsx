@@ -2,7 +2,7 @@ import { PageHeader } from "@/components/ui";
 import { RetrievalLab, type LabInitial } from "@/components/RetrievalLab";
 import { api, getSession } from "@/lib/data";
 
-export const metadata = { title: "Retrieval Lab" };
+export const metadata = { title: "Search" };
 
 type SP = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
@@ -33,9 +33,9 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   return (
     <>
       <PageHeader
-        eyebrow="Retrieval Lab"
-        title="What reaches the model?"
-        lead="Search the filings, then see exactly how the context is built: which units were ranked, how keyword and vector results were fused, and where every token of the budget went."
+        eyebrow="Natural-language search"
+        title="Ask the filings a question"
+        lead="Type a question in plain English. The answer path is retrieval over chunked 10-K filings, and this page shows exactly how the context is built: which units were ranked, how keyword and vector results were fused, and where every token of the budget went."
       />
       <RetrievalLab configs={configs} initial={initial} />
     </>

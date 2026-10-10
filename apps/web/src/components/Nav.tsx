@@ -6,8 +6,8 @@ import { usePathname } from "next/navigation";
 import clsx from "clsx";
 
 const ITEMS = [
-  { href: "/", label: "Overview", icon: Layers },
-  { href: "/search", label: "Retrieval Lab", icon: Search },
+  { href: "/search", label: "Search", icon: Search },
+  { href: "/", label: "Corpus", icon: Layers },
   { href: "/explorer", label: "Explorer", icon: ScanSearch },
   { href: "/benchmarks", label: "Benchmarks", icon: FlaskConical },
   { href: "/method", label: "Method", icon: BookOpenText },

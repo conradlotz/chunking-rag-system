@@ -11,14 +11,14 @@ export interface LoginState {
 /** Only same-site relative paths are accepted as a post-login destination. */
 function safeNext(raw: FormDataEntryValue | null): string {
   const next = typeof raw === "string" ? raw : "";
-  return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login") ? next : "/";
+  return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login") ? next : "/search";
 }
 
 export async function signIn(_prev: LoginState | undefined, formData: FormData): Promise<LoginState> {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   if (!email || !password) return { error: "Enter your email and password." };
-  if (fixtureMode()) redirect("/");
+  if (fixtureMode()) redirect("/search");
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
