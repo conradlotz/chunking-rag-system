@@ -11,7 +11,12 @@ export async function middleware(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) {
-    return new NextResponse("Server is not configured: Supabase environment variables are missing.", { status: 500 });
+    const missing = [!url && "NEXT_PUBLIC_SUPABASE_URL", !key && "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"].filter(Boolean).join(", ");
+    return new NextResponse(
+      `Server is not configured: missing ${missing}. Add them in the Vercel project settings (Environment Variables), then redeploy: ` +
+        "these values are baked in at build time, so changing them needs a new deployment.",
+      { status: 500 },
+    );
   }
 
   const supabase = createServerClient(url, key, {
