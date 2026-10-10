@@ -45,12 +45,20 @@ jobs:
         run: |
           test -n "$SEC_USER_AGENT" || { echo "::error::Add the SEC_USER_AGENT secret (name and email)"; exit 1; }
           test -n "$DB" || { echo "::error::Add the SUPABASE_DB_URL secret (Supabase session pooler string)"; exit 1; }
+          case "$DB" in
+            postgresql://*|postgres://*) ;;
+            *) echo "::error::SUPABASE_DB_URL must start with postgresql:// (copy the full Session pooler connection string, with your database password in place of [YOUR-PASSWORD], no quotes or spaces)"; exit 1;;
+          esac
+          case "$DB" in
+            *"[YOUR-PASSWORD]"*) echo "::error::SUPABASE_DB_URL still contains [YOUR-PASSWORD]; replace it with the database password"; exit 1;;
+          esac
       - name: Load filings, chunk, embed
         working-directory: pipeline
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
           CHUNKING_LAB_RAW_DIR: ${{ runner.temp }}/raw
         run: |
+          set -eo pipefail
           FLAGS=""
           if [ "${{ inputs.make_production }}" = "true" ]; then FLAGS="--make-production"; fi
           uv run python -m chunking_lab.publish \
