@@ -6,7 +6,7 @@ retrieval quality, run over **1,000+ SEC 10-K filings**.
 
 - Source filings stay at the SEC. The platform owns a canonical, hierarchical
   representation of each filing with stable character offsets.
-- Six chunking strategy families, swept over 41 parameter configurations (size,
+- Six chunking strategy families, swept over 42 parameter configurations inside the embedder's native window (size,
   overlap, boundary rule, semantic breakpoint, atomic unit size), are stored as span
   layouts over that representation, so every configuration exists for every filing
   without copying text.

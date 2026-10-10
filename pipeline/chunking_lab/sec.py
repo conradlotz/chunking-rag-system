@@ -1,9 +1,12 @@
 """SEC EDGAR connector.
 
-Source documents stay at the SEC: they are fetched into memory, hashed,
-parsed and discarded. Requests follow SEC fair-access rules: a declared
-User-Agent with contact details and at most 10 requests per second across the
-process.
+Source documents stay at the SEC: they are fetched, hashed and parsed, and never
+stored in the repository, the database or a deployment. During parser
+development they may be kept in a disposable local cache (``rawcache.py``).
+Requests follow SEC fair-access rules: a declared User-Agent with contact details
+and at most 10 requests per second across the process. Every byte transferred is
+metered per kind of request (``usage.ByteMeter``), separately from embedding
+tokens and LLM tokens.
 """
 
 from __future__ import annotations
@@ -18,6 +21,8 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
 import httpx
+
+from chunking_lab.usage import ByteMeter
 
 SP500_CSV = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
 TICKERS_JSON = "https://www.sec.gov/files/company_tickers.json"
@@ -74,6 +79,8 @@ class FetchedSource:
     body: bytes
     sha256: str
     fetched_at: datetime
+    wire_bytes: int = 0  # bytes actually transferred for this fetch (0 when served from the cache)
+    from_cache: bool = False
 
 
 class SecClient:
@@ -85,30 +92,44 @@ class SecClient:
                 "Set SEC_USER_AGENT."
             )
         self.limiter = RateLimiter(per_second)
+        self.meter = ByteMeter()
         self.http = httpx.Client(
             headers={"User-Agent": user_agent, "Accept-Encoding": "gzip, deflate"},
             timeout=timeout,
             follow_redirects=True,
         )
 
-    def get(self, url: str, attempts: int = 4) -> httpx.Response:
+    def get(self, url: str, kind: str = "other", attempts: int = 4) -> httpx.Response:
+        return self.get_counted(url, kind, attempts)[0]
+
+    def get_counted(self, url: str, kind: str = "other", attempts: int = 4) -> tuple[httpx.Response, int]:
+        """GET with rate limiting, retries and byte metering under ``sec:<kind>``.
+
+        Returns the response and the bytes transferred by *this call* (all attempts), which stays
+        correct when several downloads run in parallel.
+        """
+        wire_total = 0
         for attempt in range(attempts):
             self.limiter.wait()
             resp = self.http.get(url)
+            wire_total += resp.num_bytes_downloaded
+            self.meter.record(f"sec:{kind}", resp.num_bytes_downloaded, len(resp.content))
             if resp.status_code in (429, 500, 502, 503, 504) and attempt < attempts - 1:
                 time.sleep(2 ** (attempt + 1))
                 continue
             resp.raise_for_status()
-            return resp
+            return resp, wire_total
         raise RuntimeError("unreachable")
 
     # Universe -------------------------------------------------------------
 
     def sp500_companies(self) -> list[Company]:
         """S&P 500 constituents (public dataset) mapped to SEC CIKs."""
-        constituents = httpx.get(SP500_CSV, timeout=30).text
+        resp = httpx.get(SP500_CSV, timeout=30)
+        self.meter.record("github:sp500_list", resp.num_bytes_downloaded, len(resp.content))
+        constituents = resp.text
         tickers = {row["Symbol"].upper(): row for row in csv.DictReader(io.StringIO(constituents))}
-        sec_map = self.get(TICKERS_JSON).json()
+        sec_map = self.get(TICKERS_JSON, kind="tickers").json()
         by_ticker = {v["ticker"].upper(): v for v in sec_map.values()}
         companies = []
         for symbol, row in sorted(tickers.items()):
@@ -122,7 +143,7 @@ class SecClient:
 
     def ten_k_filings(self, company: Company, latest: int = 2) -> tuple[Company, list[FilingRef]]:
         """The company's ``latest`` original 10-K filings (amendments excluded)."""
-        data = self.get(SUBMISSIONS.format(cik=company.cik)).json()
+        data = self.get(SUBMISSIONS.format(cik=company.cik), kind="submissions").json()
         company = Company(
             company.cik, company.ticker, company.name, data.get("sic") or None, data.get("sicDescription") or None
         )
@@ -152,8 +173,9 @@ class SecClient:
     # Fetch ----------------------------------------------------------------------
 
     def fetch(self, ref: FilingRef) -> FetchedSource:
-        body = self.get(ref.source_url).content
-        return FetchedSource(ref, body, hashlib.sha256(body).hexdigest(), datetime.now(UTC))
+        resp, wire = self.get_counted(ref.source_url, kind="filing")
+        body = resp.content
+        return FetchedSource(ref, body, hashlib.sha256(body).hexdigest(), datetime.now(UTC), wire_bytes=wire)
 
 
 def fiscal_year_for(period_end: date) -> int:

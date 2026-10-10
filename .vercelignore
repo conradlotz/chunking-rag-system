@@ -1,0 +1,5 @@
+# Never deployed: local raw SEC cache, pipeline caches and benchmark outputs
+data/raw
+.cache
+pipeline
+bench/results

@@ -7,9 +7,12 @@ registered version. Limits are in embedding-model tokens.
 
 ``MAX_TOKENS = 480`` is the largest chunk that fits gte-small's 512-token window
 alongside the context prefix (company, fiscal year, item, heading; <= 24 tokens)
-and two special tokens. Configurations above it are flagged ``embed_windowed``:
-they are embedded as several windows whose vectors are averaged, so the embedder
-never silently truncates them. 480 stands in for the conventional "512".
+and two special tokens. 480 stands in for the conventional "512".
+
+The primary experiment stays inside that native window, so chunk size is the only
+thing that varies. Larger chunks need either truncation or averaging several window
+embeddings, which is a second variable; they exist only for the separate long-chunk
+experiment and every chunker rejects them unless ``allow_windowed=True`` is passed.
 """
 
 from __future__ import annotations
@@ -170,6 +173,16 @@ def _sentence_segs(doc: CanonicalDocument, tokenizer: Tokenizer, include_heading
 # ---------------------------------------------------------------------------
 
 
+def _check_size(size: int, allow_windowed: bool) -> None:
+    if size < 1:
+        raise ValueError("size must be positive")
+    if size > MAX_TOKENS and not allow_windowed:
+        raise ValueError(
+            f"size {size} exceeds gte-small's native {MAX_TOKENS}-token window; "
+            "pass allow_windowed=True only for the separate long-chunk experiment"
+        )
+
+
 def _config(strategy: str, name: str, version: str, params: dict, size: int) -> ComponentVersion:
     params = {**params, "embed_windowed": size > MAX_TOKENS}
     return ComponentVersion("chunker", name, version, params=params, strategy=strategy, modules=_MOD)
@@ -241,9 +254,11 @@ def _leaf_segs(doc: CanonicalDocument, tokenizer: Tokenizer) -> list[Seg]:
 class FixedChunker(Chunker):
     """Token windows of ``size`` tokens, each overlapping the previous by ``overlap_pct`` percent."""
 
-    def __init__(self, size: int = MAX_TOKENS, overlap_pct: int = 0, version: str = "1.0.0") -> None:
+    def __init__(self, size: int = MAX_TOKENS, overlap_pct: int = 0, version: str = "1.0.0",
+                 allow_windowed: bool = False) -> None:
         if not 0 <= overlap_pct < 100:
             raise ValueError("overlap_pct must be in [0, 100)")
+        _check_size(size, allow_windowed)
         self.size, self.overlap_pct = size, overlap_pct
         self.version = _config("fixed", f"fixed.s{size}.o{overlap_pct}", version,
                                {"size": size, "overlap_pct": overlap_pct}, size)
@@ -257,7 +272,9 @@ class RecursiveChunker(Chunker):
     """Splits on paragraph (block) boundaries, then sentences, then tokens, to a
     ``target`` size. Not bound by sections: chunks may span a section boundary."""
 
-    def __init__(self, target: int = MAX_TOKENS, overlap_pct: int = 0, version: str = "1.0.0") -> None:
+    def __init__(self, target: int = MAX_TOKENS, overlap_pct: int = 0, version: str = "1.0.0",
+                 allow_windowed: bool = False) -> None:
+        _check_size(target, allow_windowed)
         self.target, self.overlap_pct = target, overlap_pct
         self.version = _config("recursive", f"recursive.t{target}.o{overlap_pct}", version,
                                {"target": target, "overlap_pct": overlap_pct}, target)
@@ -270,7 +287,8 @@ class RecursiveChunker(Chunker):
 
 
 class SentenceChunker(Chunker):
-    def __init__(self, max_tokens: int = MAX_TOKENS, version: str = "1.0.0") -> None:
+    def __init__(self, max_tokens: int = MAX_TOKENS, version: str = "1.0.0", allow_windowed: bool = False) -> None:
+        _check_size(max_tokens, allow_windowed)
         self.max_tokens = max_tokens
         self.version = _config("sentence", f"sentence.max{max_tokens}", version, {"max": max_tokens}, max_tokens)
 
@@ -286,7 +304,9 @@ class StructuralChunker(Chunker):
     """
 
     def __init__(self, max_tokens: int = MAX_TOKENS, min_tokens: int = 64, target: int | None = None,
-                 strategy: str = "structural", name: str | None = None, version: str = "1.0.0") -> None:
+                 strategy: str = "structural", name: str | None = None, version: str = "1.0.0",
+                 allow_windowed: bool = False) -> None:
+        _check_size(max_tokens, allow_windowed)
         self.max_tokens, self.min_tokens = max_tokens, min_tokens
         self.target = target or max_tokens
         name = name or f"{strategy}.max{max_tokens}"
@@ -353,6 +373,8 @@ class HierarchicalUnitChunker(StructuralChunker):
         self.atomic = atomic
         super().__init__(max_tokens=max_tokens, min_tokens=min_tokens, target=atomic, strategy="hierarchical",
                          name=f"hierarchical.a{atomic}", version=version)
+        if atomic > max_tokens:
+            raise ValueError("atomic units must not exceed max_tokens")
 
 
 class SemanticChunker(Chunker):
@@ -365,7 +387,8 @@ class SemanticChunker(Chunker):
 
     def __init__(self, embed: Callable[[list[str]], np.ndarray], percentile: float | None = 90,
                  distance: float | None = None, min_tokens: int = 64, max_tokens: int = MAX_TOKENS,
-                 version: str = "1.0.0", embedder_id: str | None = None) -> None:
+                 version: str = "1.0.0", embedder_id: str | None = None, allow_windowed: bool = False) -> None:
+        _check_size(max_tokens, allow_windowed)
         if (percentile is None) == (distance is None):
             raise ValueError("give exactly one of percentile or distance")
         self.embed, self.percentile, self.distance = embed, percentile, distance

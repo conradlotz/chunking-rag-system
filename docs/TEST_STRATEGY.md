@@ -85,7 +85,7 @@ flowchart TB
 | L2 | Ordered; every non-whitespace character of in-scope text is covered | all |
 | L3 | No overlap between consecutive spans | configurations with `overlap_pct = 0` |
 | L4 | Overlap is `round(size × overlap_pct / 100)` tokens (± 1 at boundaries) for `fixed`; for `recursive`, at most that many tokens and made of whole units | `fixed`, `recursive` with overlap |
-| L5 | `token_count` ≤ the configuration's limit (480 for single-window configurations); configurations above 480 carry `embed_windowed = true` | all |
+| L5 | `token_count` ≤ the configuration's limit (480 for single-window configurations); no primary configuration exceeds 480; sizes above 480 are rejected unless `allow_windowed=True` (secondary experiment only) | all |
 | L6 | No sentence split unless a single sentence exceeds the limit | `sentence`, `recursive`, `structural`, `semantic`, `hierarchical` |
 | L7 | No span crosses a section boundary | `structural`, `hierarchical` |
 | L8 | `node_id` is the smallest node containing the span | all search units |
@@ -116,6 +116,17 @@ checked against an analytic case.
   give the same output.
 - Triggers: a wrong gold quote is rejected; canonical text is frozen once referenced.
 - Loaders: idempotent re-load; `ingest_jobs` resumes after a simulated crash.
+
+### 3.5a Raw cache, source modes and resource accounting
+
+| Area | Tests |
+|------|-------|
+| Raw cache | Round trip with fingerprint sidecar; a tampered file is detected on read and by `verify`; unsafe document names rejected; atomic writes; `clear` removes only cached files and refuses an unexpected directory |
+| Source modes | `sec` never touches the cache; `cache-first` downloads once and records bytes avoided; `cache-only` never uses the network and fails on a miss or corrupt entry; `refresh` overwrites; `cache-first` heals a corrupt entry |
+| Never committed or deployed | The default cache directory is git-ignored; a cache inside the repository but not ignored is refused; no file under `data/raw` is tracked; `.gitignore` and `.vercelignore` list it |
+| Download metering | Wire bytes are the compressed size and differ from decompressed size; every retry attempt is counted; bytes and requests are kept per kind (`sec:filing`, `sec:submissions`, ...) |
+| Resource accounting | Units are tied to categories in Python and in SQL (embedding tokens cannot be recorded as bandwidth or LLM tokens; only LLM entries carry a dollar cost); LLM cost matches published prices; `rag.resource_usage` returns four distinct categories with storage taken from the latest snapshot |
+| Native window | Every chunker rejects sizes above 480 unless opted out; every primary sweep configuration is native-window; the secondary long-chunk experiment is flagged, opt-in and disjoint from the primary grid |
 
 ### 3.6 End-to-end (Playwright on Vercel previews, recorded model responses)
 
@@ -274,6 +285,13 @@ cost as each parameter moves**. There is no universal best configuration:
   shortlisted configurations; *full* on the whole corpus and the test questions for
   Pareto-optimal and hypothesis-critical configurations only.
 
+**Secondary experiment (long chunks and multi-window aggregation).** Chunks above gte-small's
+480-token native window need truncation or aggregated window embeddings, a second variable.
+They are kept out of the primary experiment, its curves and its Pareto frontiers. A separate
+`long-chunk-windowed` experiment (fixed 768 and 1,024 tokens; `truncate` versus `mean_windows`
+embedding; compared with 480-token chunks) reports whether aggregation recovers what
+truncation loses. It does not influence the production-configuration choice.
+
 **Pareto frontier.** A configuration is on the frontier when no other has at least
 its quality at no more than its cost, with one strictly better
 (`rag.pareto_frontier()`). Pairs reported:
@@ -290,7 +308,7 @@ under a stated budget (for example, minimum cost within one confidence interval 
 the best Full-Evidence Rate), and recorded in `production_config` with the run that
 justified it.
 
-**Guarding against overfitting the sweep.** Selecting the best of 41+ configurations
+**Guarding against overfitting the sweep.** Selecting the best of 42+ configurations
 on any question set inflates its score, so:
 
 - selection uses dev questions only; the test questions are run once, on the

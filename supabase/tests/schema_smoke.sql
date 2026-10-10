@@ -172,8 +172,8 @@ insert into rag.component_versions (id, component, name, version, strategy, para
   ('chunker/structural.max256@0.0.0', 'chunker', 'structural.max256', '0.0.0', 'structural', '{"max": 256}'),
   ('chunker/structural.max1024@0.0.0', 'chunker', 'structural.max1024', '0.0.0', 'structural', '{"max": 1024}');
 
-insert into rag.experiments (id, name, strategy, axes, stage)
-values ('exp-structural-max', 'structural max sweep', 'structural', '{"max": [256, 480, 1024]}', 'screening');
+insert into rag.experiments (id, name, strategy, axes, stage, is_primary)
+values ('exp-structural-max', 'structural max sweep', 'structural', '{"max": [128, 256, 384, 480]}', 'screening', true);
 
 -- cost = chunks (lower better); quality = recall_at_5 (higher better)
 -- A (256): recall .95, 91k chunks   B (480): recall .93, 48k   C (1024): recall .90, 27k
@@ -214,6 +214,50 @@ do $$
 begin
   if rag.snapshot_storage('00000000-0000-0000-0000-0000000000a1', 'smoke', 1) < 20 then
     raise exception 'snapshot_storage captured too few relations';
+  end if;
+end;
+$$;
+
+-- Resource accounting: categories keep their own units ---------------------------
+insert into rag.usage_ledger (category, subject, unit, quantity, ingest_run_id, accession_no) values
+  ('bandwidth',         'sec:filing',                 'bytes',    1500000, '00000000-0000-0000-0000-0000000000a1', '0000000001-26-000001'),
+  ('bandwidth',         'sec:filing',                 'requests', 1,       '00000000-0000-0000-0000-0000000000a1', '0000000001-26-000001'),
+  ('embedding_compute', 'embedder/test-emb@0.0.0',    'tokens',   4000000, '00000000-0000-0000-0000-0000000000a1', null),
+  ('embedding_compute', 'embedder/test-emb@0.0.0',    'seconds',  400,     '00000000-0000-0000-0000-0000000000a1', null);
+insert into rag.usage_ledger (category, subject, unit, quantity, cost_usd) values
+  ('llm', 'claude-opus-5-5:answer', 'usd', 0.026, 0.026);
+
+do $$
+declare
+  v_bad int := 0;
+begin
+  -- embedding tokens cannot be filed under bandwidth, bytes cannot be LLM tokens, bandwidth has no dollar cost
+  begin insert into rag.usage_ledger (category, subject, unit, quantity) values ('bandwidth', 'x', 'tokens', 1);
+        v_bad := v_bad + 1; exception when check_violation then null; end;
+  begin insert into rag.usage_ledger (category, subject, unit, quantity) values ('llm', 'x', 'bytes', 1);
+        v_bad := v_bad + 1; exception when check_violation then null; end;
+  begin insert into rag.usage_ledger (category, subject, unit, quantity, cost_usd) values ('embedding_compute', 'x', 'tokens', 1, 0.5);
+        v_bad := v_bad + 1; exception when check_violation then null; end;
+  begin insert into rag.usage_ledger (category, subject, unit, quantity) values ('storage', 'x', 'bytes', 1);
+        v_bad := v_bad + 1; exception when check_violation then null; end;
+  if v_bad <> 0 then raise exception 'usage_ledger accepted % invalid rows', v_bad; end if;
+
+  if (select quantity from rag.resource_usage where category = 'bandwidth' and unit = 'bytes') <> 1500000 then
+    raise exception 'resource_usage bandwidth wrong';
+  end if;
+  if (select quantity from rag.resource_usage where category = 'embedding_compute' and unit = 'tokens') <> 4000000 then
+    raise exception 'resource_usage embedding tokens wrong';
+  end if;
+  if (select sum(cost_usd) from rag.resource_usage where category = 'llm') <> 0.026 then
+    raise exception 'resource_usage llm cost wrong';
+  end if;
+  -- storage comes from the latest storage snapshot, not the ledger
+  if not exists (select 1 from rag.resource_usage where category = 'storage' and subject = 'units' and unit = 'bytes') then
+    raise exception 'resource_usage is missing storage rows';
+  end if;
+  -- the four categories never collapse into one total
+  if (select count(distinct category) from rag.resource_usage) <> 4 then
+    raise exception 'expected four distinct resource categories';
   end if;
 end;
 $$;

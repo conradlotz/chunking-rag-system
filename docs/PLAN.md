@@ -20,7 +20,7 @@ Primary research question:
 |----------|------------------------|
 | 10-K filings, S&P 500, FY2024–FY2025 (≥ 1,000 filings) | 10-Q, 8-K, other forms (the pipeline supports adding them) |
 | Items 1, 1A, 7, 7A | Financial statements and exhibits (figures come from XBRL) |
-| Six chunking strategy families swept over 41 parameter configurations (size, overlap, boundary, semantic breakpoint, atomic size); query-time sweeps of mode, `k`, budget and expansion | Fine-tuned embedding models |
+| Six chunking strategy families swept over 42 parameter configurations inside gte-small's native window (sizes 128 / 256 / 384 / 480) (size, overlap, boundary, semantic breakpoint, atomic size); query-time sweeps of mode, `k`, budget and expansion | Fine-tuned embedding models |
 | Chunking, retrieval and answer benchmarks | Re-hosting SEC source documents |
 | Live serving on Vercel + Supabase free plan | Multi-tenant uploads |
 
@@ -40,7 +40,7 @@ Primary research question:
 | M0 | Design | PLAN, ARCHITECTURE, TEST_STRATEGY reviewed | Done |
 | M1 | Schema v2 | Canonical hierarchical schema applied and smoke-tested, no data left behind | Migration written; awaiting approval to apply |
 | M2 | SEC connector + canonicaliser | 100 filings canonicalised; determinism and segmentation audits pass; measured storage per filing | |
-| M3 | Configurations + chunking benchmark | All 41 index-time configurations laid out over the first 100 filings; invariant tests green; first intrinsic benchmark including answer-span containment | |
+| M3 | Configurations + chunking benchmark | All 42 primary index-time configurations laid out over the first 100 filings; invariant tests green; first intrinsic benchmark including answer-span containment | |
 | M4 | Scale to ≥ 1,000 | Full corpus ingested; failures explained; storage confirmed against the plan | |
 | M5 | Embeddings + indexes | Benchmark DB fully embedded; hosted serving index; embedding parity passes | |
 | M6 | Questions | Gold 50 reviewed; silver ≥ 300 generated and audited | |
@@ -62,7 +62,9 @@ results exist.
 | Strategies | Six families (`fixed`, `recursive`, `sentence`, `structural`, `semantic`, `hierarchical`); each parameter combination is a separately versioned configuration stored as a span layout | Decided |
 | Tuning | Index-time parameters swept in stages (intrinsic, screening, full); query-time parameters swept freely; results as parameter curves and Pareto frontiers, not a single winner | Decided |
 | Hosted Supabase | Holds the winning production configuration only; the benchmark is never sized to the free plan | Decided |
-| Chunk sizes above 480 tokens | Embedded as averaged windows (`gte-small` reads 512 tokens); 480 stands in for "512" | Decided |
+| Chunk sizes | Primary sweep stays inside gte-small's native window (128 / 256 / 384 / 480; 480 stands in for "512"); chunks above it and multi-window aggregation are a separate secondary experiment | Decided |
+| Raw SEC cache | Disposable local cache under git-ignored `data/raw/` for parser development; fingerprinted; never committed or deployed; ingestion can use cache or SEC | Decided |
+| Cost accounting | Bandwidth, local embedding compute, storage and paid generation are tracked and shown separately, never summed | Decided |
 | Embeddings | `gte-small` (Supabase built-in), 384-d, `halfvec`; same model offline | Decided |
 | Answer model / judge | `claude-opus-5-5` | Decided |
 | Hosting | Vercel + existing Supabase project (free plan), isolated `rag` schema | Decided |
@@ -77,7 +79,7 @@ results exist.
 |------|------------|
 | 10-K HTML is inconsistent; item segmentation fails on some filings | Parser validation gates, audit sample, failures logged and counted, never silently dropped |
 | Hosted storage tighter than estimated | Measure at 100 filings; capacity plan in ARCHITECTURE section 10 |
-| Embedding the sweep grid (about 2.0B tokens for 41 configurations) is slow on CPU | Stage the grid; measure throughput on the first filings before scheduling anything; GPU batch run; cache by text hash |
+| Embedding the sweep grid (about 2.0B tokens for 42 configurations) is slow on CPU | Stage the grid; measure throughput on the first filings before scheduling anything; GPU batch run; cache by text hash |
 | Model memorised public filings | Closed-book baseline; faithfulness and citation metrics |
 | Gold set too small for fine-grained claims | Silver XBRL set for numeric lookups; primary hypothesis tested only where the gold set has power |
 | Labels unintentionally favour a layout | Minimal sentence-level spans, analyst wording, strategy-blind labelling |

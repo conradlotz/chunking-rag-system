@@ -382,6 +382,9 @@ create table rag.experiments (
   hypothesis text,
   axes       jsonb not null,
   stage      text not null check (stage in ('intrinsic', 'screening', 'full')),
+  -- primary experiments stay inside the embedder's native window; the long-chunk /
+  -- multi-window experiment is secondary and never mixed into primary curves or frontiers
+  is_primary boolean not null default true,
   status     text not null default 'planned' check (status in ('planned', 'running', 'complete')),
   created_at timestamptz not null default now()
 );
@@ -531,6 +534,46 @@ create table rag.ingest_jobs (
 );
 
 create index ingest_jobs_stage_idx on rag.ingest_jobs (stage);
+
+-- ===========================================================================
+-- Resource accounting: four different costs, never added together
+-- ===========================================================================
+--   bandwidth          bytes / requests downloaded (e.g. from the SEC)
+--   embedding_compute  tokens / seconds of the LOCAL embedding model (no billing)
+--   llm                tokens / dollars billed by a paid generation API
+--   storage            bytes held in a database (read from storage_snapshots, see the view)
+
+create table rag.usage_ledger (
+  id                bigint generated always as identity primary key,
+  recorded_at       timestamptz not null default now(),
+  category          text not null check (category in ('bandwidth', 'embedding_compute', 'llm')),
+  subject           text not null,
+  unit              text not null,
+  quantity          numeric not null check (quantity >= 0),
+  cost_usd          numeric check (cost_usd >= 0),
+  ingest_run_id     uuid references rag.ingest_runs (id) on delete set null,
+  benchmark_run_id  uuid references rag.benchmark_runs (id) on delete set null,
+  accession_no      text,
+  meta              jsonb not null default '{}'::jsonb,
+  -- each category has its own units: embedding tokens can never be recorded as LLM tokens
+  check ((category = 'bandwidth' and unit in ('bytes', 'requests'))
+      or (category = 'embedding_compute' and unit in ('tokens', 'seconds'))
+      or (category = 'llm' and unit in ('tokens', 'usd'))),
+  -- only paid generation carries a dollar cost
+  check (cost_usd is null or category = 'llm')
+);
+
+create index usage_ledger_category_idx on rag.usage_ledger (category, subject);
+create index usage_ledger_run_idx on rag.usage_ledger (ingest_run_id, benchmark_run_id);
+
+create view rag.resource_usage with (security_invoker = true) as
+select category, subject, unit, sum(quantity) as quantity, sum(cost_usd) as cost_usd, count(*)::int as entries
+from rag.usage_ledger
+group by category, subject, unit
+union all
+select 'storage', s.relation, 'bytes', s.total_bytes::numeric, null::numeric, 1
+from rag.storage_snapshots s
+where s.taken_at = (select max(taken_at) from rag.storage_snapshots);
 
 -- ===========================================================================
 -- Integrity

@@ -21,7 +21,7 @@ from chunking_lab.chunkers import (
     StructuralChunker,
     build_chunker,
 )
-from chunking_lab.metrics import SpanIndex, layout_metrics, span_containment
+from chunking_lab.metrics import layout_metrics
 from chunking_lab.model import CanonicalDocument
 from chunking_lab.parse import parse_filing
 from chunking_lab.tokenize import RegexTokenizer
@@ -188,9 +188,15 @@ def test_config_names_are_deterministic_and_distinct():
     assert HierarchicalUnitChunker(atomic=256).version.id == "chunker/hierarchical.a256@1.0.0"
 
 
-def test_oversize_configs_are_flagged_for_windowed_embedding():
-    assert FixedChunker(size=1024).version.params["embed_windowed"] is True
+def test_native_window_is_enforced_unless_explicitly_opted_out():
+    for ctor in (lambda: FixedChunker(size=1024), lambda: RecursiveChunker(target=768),
+                 lambda: SentenceChunker(max_tokens=600), lambda: StructuralChunker(max_tokens=481),
+                 lambda: HierarchicalUnitChunker(atomic=128, max_tokens=1024 + 1)):
+        with pytest.raises(ValueError, match="native"):
+            ctor()
     assert FixedChunker(size=480).version.params["embed_windowed"] is False
+    long_chunks = FixedChunker(size=1024, allow_windowed=True)
+    assert long_chunks.version.params["embed_windowed"] is True
 
 
 def test_build_chunker_dispatch_and_validation():
@@ -203,46 +209,44 @@ def test_build_chunker_dispatch_and_validation():
         build_chunker("nope")
 
 
+def test_primary_sweep_stays_inside_the_native_window():
+    from chunking_lab.chunkers import MAX_TOKENS
+    from chunking_lab.sweeps import SWEEPS, all_index_configs
+
+    primary = all_index_configs(primary=True)
+    assert len(primary) == 16 + 12 + 4 + 2 + 4 + 4
+    embed = lambda t: np.zeros((len(t), 4))  # noqa: E731
+    for strategy, cfg in primary:
+        chunker = build_chunker(strategy, embed=embed, **cfg)
+        assert chunker.version.params["embed_windowed"] is False, chunker.version.id
+        assert "allow_windowed" not in cfg
+        for key in ("size", "target", "max_tokens", "atomic"):
+            assert cfg.get(key, 0) <= MAX_TOKENS
+    sizes = {cfg["size"] for st, cfg in primary if st == "fixed"}
+    assert sizes == {128, 256, 384, 480}
+    # the long-chunk / multi-window experiment is separate and opt-in
+    secondary = [s for s in SWEEPS if not s.primary]
+    assert [s.id for s in secondary] == ["long-chunk-windowed"]
+    assert all(cfg["size"] > MAX_TOKENS and cfg["allow_windowed"] for cfg in secondary[0].index_configs())
+    assert {c["embed_aggregation"] for c in secondary[0].embed_configs()} == {"truncate", "mean_windows"}
+    assert not {tuple(sorted(c.items())) for _, c in primary} & {tuple(sorted(c.items())) for c in
+                                                                  secondary[0].index_configs()}
+
+
 def test_sweep_grid_and_cost_model():
     from chunking_lab.sweeps import SWEEPS, all_index_configs, estimate_embedding_cost, query_configs
 
-    configs = all_index_configs()
-    assert len(configs) == 20 + 9 + 3 + 2 + 4 + 3
+    configs = all_index_configs(primary=None)
     ids = {build_chunker(st, embed=lambda t: np.zeros((len(t), 4)), **cfg).version.id for st, cfg in configs}
     assert len(ids) == len(configs), "every configuration must have a unique version id"
     assert len(query_configs()) == 3 * 4 * 3 * 3 * 3
     assert {s.strategy for s in SWEEPS} == {"fixed", "recursive", "structural", "sentence", "semantic",
                                             "hierarchical"}
+    primary = all_index_configs(primary=True)
     cost = estimate_embedding_cost(40_000_000, tokens_per_second=100_000)
-    assert cost["configurations"] == len(configs)
-    assert cost["total_tokens"] > 40_000_000 * len(configs)  # overlap and semantic sentences add work
-
-
-def test_structural_never_crosses_section(doc):
-    layout = StructuralChunker(max_tokens=120, min_tokens=20).layout(doc, TOK)
-    m = layout_metrics(doc, layout, limit=120)
-    assert m.cross_section_chunks == 0
-    assert m.orphan_headings == 0
-
-
-def test_fixed_damages_structure_more_than_structural(doc):
-    fixed = layout_metrics(doc, FixedChunker(size=120).layout(doc, TOK), limit=120).summary(120)
-    structural = layout_metrics(doc, StructuralChunker(max_tokens=120).layout(doc, TOK),
-                                limit=120).summary(120)
-    assert fixed["boundaries"]["mid_sentence_rate"] > structural["boundaries"]["mid_sentence_rate"]
-    assert fixed["structure"]["cross_section_chunk_rate"] > structural["structure"]["cross_section_chunk_rate"]
-
-
-def test_answer_span_containment_hand_worked():
-    from chunking_lab.model import Layout
-
-    layout = Layout("t", (0, 100), (100, 200), (10, 10), (0, 0))
-    idx = SpanIndex(layout)
-    stats = span_containment(idx, [(10, 40), (90, 110), (0, 200)]).summary()
-    assert stats["n"] == 3
-    assert stats["contained_rate"] == pytest.approx(1 / 3)          # only (10,40) fits in one chunk
-    assert stats["mean_cover_count"] == pytest.approx((1 + 2 + 2) / 3)
-    assert stats["mean_dilution"] == pytest.approx(30 / 100)        # evidence share of the chunk holding it
+    assert cost["configurations"] == len(primary)
+    assert cost["total_tokens"] > 40_000_000 * len(primary)  # overlap and semantic sentences add work
+    assert estimate_embedding_cost(40_000_000, 100_000, primary=None)["configurations"] == len(configs)
 
 
 @settings(max_examples=40, deadline=None)

@@ -107,7 +107,7 @@ decisions matter.
 flowchart TD
     U["Universe\nS&P 500 list -> CIKs"] --> D["Discover\nsubmissions JSON per CIK\n-> 10-K accession numbers, FY, dates"]
     D --> J[("ingest_jobs\none row per accession,\nstage + attempts + metrics")]
-    J --> F["Fetch primary document\nUser-Agent with contact, <= 10 req/s,\nheld in memory, SHA-256 recorded"]
+    J --> F["Fetch primary document\nmode: sec | cache-first | cache-only | refresh\nUser-Agent with contact, <= 10 req/s,\nSHA-256 recorded, bytes metered"]
     F --> P["Parse inline-XBRL HTML\nstrip hidden XBRL, keep visible text,\ntables -> row text, detect headings"]
     P --> S["Segment items\nlocate Item 1 / 1A / 7 / 7A,\nskip table of contents, validate order"]
     S --> C["Canonicalise\ndeterministic text, document tree,\nsentence offsets, canonical SHA-256"]
@@ -128,6 +128,33 @@ flowchart TD
   minute, tokens per second and errors; the Corpus page shows them.
 - **SEC fair access.** A declared `User-Agent` with contact details and a shared
   token-bucket limiter at ≤ 10 requests per second across all workers.
+- **Source modes.** `FilingSource` takes filings from the SEC or from a local raw
+  cache: `sec` always downloads (production), `cache-first` uses a valid cached copy
+  or downloads and stores it (parser development), `cache-only` never touches the
+  network, `refresh` re-downloads and overwrites.
+- **Per-stage telemetry from the first filing.** Wall and CPU time, bytes in and out,
+  and stage counts go to `ingest_events`; transfer, embedding and LLM usage go to the
+  separate categories of the usage ledger (section 10.1).
+
+### 4.1 Raw SEC cache (disposable, development only)
+
+Source filings stay at the SEC and are not part of the product. While the parser is
+being developed, though, re-downloading the same filings after every parser fix is
+wasteful and puts needless load on the SEC, so each filing is downloaded **once** and
+kept in a local cache:
+
+- **Location:** `data/raw/sec/<cik>/<accession>/<document>`, or `CHUNKING_LAB_RAW_DIR`.
+- **Fingerprinted:** every file has a sidecar (`.meta.json`) with its SHA-256, size,
+  original transfer size and fetch time. Files are re-fingerprinted on every read; a
+  mismatch is never used (`cache-first` discards and re-downloads it, `cache-only`
+  stops). Writes are atomic.
+- **Never committed or deployed:** `data/raw/` is in `.gitignore` and `.vercelignore`;
+  the cache refuses to open if its directory is inside a git repository but not
+  ignored; a test fails if any file under `data/raw` is tracked.
+- **Disposable:** `chunking-lab cache stats | verify | clear --yes`. Deleting it costs only
+  download time. The cache is not read in production ingest (`sec` mode), and parsed
+  results never depend on it: a filing's identity is its accession number plus the
+  fingerprint of the bytes it was parsed from, recorded on `filings.source_sha256`.
 
 ---
 
@@ -214,14 +241,16 @@ The cost of a parameter decides how it is swept.
 | **Index-time** (changes the chunks) | size, overlap, boundary rule / strategy, semantic breakpoint, atomic unit size | Each value is a new layout and a new embedding set |
 | **Query-time** (applied when retrieving) | `k`, retrieval `mode`, context `budget_tokens`, `parent_expansion` (levels up the tree), `neighbor_expansion` (± adjacent blocks) | Swept without re-embedding anything; recorded on `retrieval_configs.params` |
 
-The sweep grids live in `pipeline/chunking_lab/sweeps.py`. There are **41
-index-time configurations** (fixed 5 sizes × 4 overlaps, recursive 3 × 3,
-structural 3, sentence 2, semantic 4 breakpoints, hierarchical 3 atomic sizes)
-and 324 query-time combinations (3 modes × 4 k × 3 budgets × 3 × 3 expansions).
+The sweep grids live in `pipeline/chunking_lab/sweeps.py`. The **primary experiment**
+has **42 index-time configurations**, all inside the embedder's native window, with
+chunk sizes **128 / 256 / 384 / 480** (fixed: 4 sizes × 4 overlaps; recursive: 4 × 3;
+structural 4; sentence 2; semantic 4 breakpoints; hierarchical 4 atomic sizes) and 324
+query-time combinations (3 modes × 4 k × 3 budgets × 3 × 3 expansions). A separate
+**secondary experiment** covers chunks larger than the window (section 6.3).
 
 ### 6.2 Staged evaluation
 
-Embedding all 41 configurations over the whole corpus is about 2.0 billion
+Embedding all 42 primary configurations over the whole corpus is about 2.0 billion
 tokens, so the grid is not embedded blindly. Each configuration moves through
 stages, and only the ones that earn it advance:
 
@@ -238,16 +267,27 @@ embedding throughput: 2.0 billion tokens is about 6 hours at 100,000 tokens/s, 5
 10,000 and 185 hours at 3,000. Throughput is therefore measured on the first
 filings (ingest telemetry) before any grid is scheduled, and replaces every assumed rate.
 
-### 6.3 Embedding window
+### 6.3 Embedding window and the long-chunk experiment
 
 `gte-small` reads at most 512 tokens including two special tokens and a context
-prefix (`Company · FY · Item · heading`, at most 24 tokens), so **480 content
-tokens** is the largest chunk that is embedded in one pass, and 480 stands in for
-the conventional "512" in every sweep. Configurations above 480 (768, 1,024) are
-flagged `embed_windowed`: each chunk is embedded as several windows whose
-vectors are averaged and renormalised, so the model never silently truncates
-the text and biases the comparison against large chunks. The embedder's
-parameters record this mode.
+prefix (`Company · FY · Item · heading`, at most 24 tokens), so **480 content tokens**
+is the largest chunk it embeds natively; 480 stands in for the conventional "512".
+
+**The primary experiment stays inside that window** (128 / 256 / 384 / 480). Chunk size
+is then the only thing that varies. A chunk larger than the window needs either
+truncation (the model silently drops the tail) or several window embeddings that are
+aggregated, and both are a second variable that would confound the size curve. So:
+
+- every chunker **rejects sizes above 480** unless `allow_windowed=True` is passed;
+- primary sweeps, curves and Pareto frontiers never include windowed configurations
+  (`experiments.is_primary` marks them apart; a test asserts the primary grid is
+  entirely native-window);
+- chunks above the window are studied only in the **secondary `long-chunk-windowed`
+  experiment**: fixed 768 and 1,024-token chunks, each embedded two ways
+  (`truncate` to the first window, and `mean_windows`, which averages the per-window
+  vectors and renormalises), compared with the 480-token chunks. It asks whether
+  aggregation recovers what truncation loses; its results are reported separately and
+  are not used to choose the production configuration.
 
 ### 6.4 Layouts, units and what is stored
 
@@ -278,7 +318,7 @@ parameters record this mode.
 - Stored as `halfvec(384)` (768 bytes per unit).
 - Volume depends on the configuration: every configuration embeds roughly the corpus
   token count (overlap multiplies it by 1 / (1 − overlap); semantic chunking also embeds
-  every sentence once). The whole 41-configuration grid is about 2.0 billion tokens, which
+  every sentence once). The whole 42-configuration primary grid is about 2.0 billion tokens, which
   is why it is staged (section 6.2) and why throughput is measured from the first filing.
   Corpus embedding is a batch job, run on a GPU or many-core CPU, and fully cached for re-runs.
 
@@ -434,6 +474,29 @@ can run two) or the project moves to the Pro plan. The architecture doesn't chan
 
 ---
 
+### 10.1 Resource accounting
+
+Four different costs are recorded and shown separately; they use different units and
+are never added together.
+
+| Category | What it measures | Unit | Billed? | Where recorded |
+|----------|------------------|------|---------|----------------|
+| **Bandwidth** | Data downloaded from remote sources (SEC filings, submissions lists, ticker maps) | bytes on the wire (compressed), decompressed bytes, requests | No (SEC fair-access limits apply) | `usage_ledger`, from the SEC client's byte meter; cache hits record bytes *avoided* |
+| **Local embedding compute** | Text read by the local `gte-small` model | tokens, seconds, hence tokens per second | No per-token charge; costs machine time (or GPU rental if used) | `usage_ledger`, from the embedder |
+| **Storage** | Space held in a database, per table, TOAST relation and index | bytes | Free-plan limit (500 MB hosted) | `storage_snapshots` (`rag.snapshot_storage()`) |
+| **Paid generation** | Claude calls that write and grade answers | input and output tokens, dollars | **Yes** | `usage_ledger`, one entry per call with model and purpose |
+
+`rag.usage_ledger` enforces the pairing in SQL (a `check` constraint: embedding tokens
+cannot be filed under bandwidth or as LLM tokens, bytes cannot be tokens, and only
+generation carries a dollar cost). `rag.resource_usage` is a view that unions the ledger
+with the latest storage snapshot, grouped by category, subject and unit. Prices live in
+`pipeline/chunking_lab/usage.py` and are labelled with the date they were taken from.
+
+The ledger is written wherever the pipeline runs (the benchmark environment); a summary
+is copied to hosted Supabase when results are published, so the UI can show it.
+
+---
+
 ## 11. Data model
 
 Layers are kept separate; each derived layer records the versions it came from,
@@ -546,7 +609,7 @@ erDiagram
 | Artifacts | `embedding_sets`, `units` | New embedder or keyword analyzer version |
 | Retrieval | `retrieval_configs`, `production_config` | Query-time parameters or context builder change |
 | Evaluation | `questions`, `gold_spans`, `benchmark_runs`, `retrieval_results`, `answer_results`, `chunking_results`, `experiments`, `sweep_points` | Each benchmark run |
-| Telemetry | `ingest_runs`, `ingest_events`, `storage_snapshots`, `ingest_jobs` | Every ingest, from the first filing |
+| Telemetry and usage | `ingest_runs`, `ingest_events`, `storage_snapshots`, `ingest_jobs`, `usage_ledger` (view `resource_usage`) | Every ingest and benchmark, from the first filing |
 
 Telemetry is recorded per filing and per stage (discover, fetch, parse, normalize,
 tokenize, chunk, embed, load, verify): wall and CPU time, bytes in and out, and
@@ -567,13 +630,22 @@ the system doing and how well?"
 
 | Page | Shows |
 |------|-------|
-| **Corpus** | Filings, companies, fiscal years, tokens, tree nodes, sentences; per-strategy chunk counts, token distributions and embedded units; ingestion throughput and failures; hosted storage used |
+| **Corpus** | Filings, companies, fiscal years, tokens, tree nodes, sentences; per-configuration chunk counts, token distributions and embedded units; ingestion throughput and failures; and a **Resource usage** panel with four separate sections (below) |
 | **Explorer** | One filing: the item/section tree beside the canonical text; **chunk boundaries for any strategy drawn as bands**, two strategies overlaid for comparison; token count per chunk; gold spans highlighted; link to the original on sec.gov |
 | **Retrieval Lab** | Two modes. **Query:** run a question against a chosen configuration, mode, `k`, budget and expansion: ranked units with vector rank, keyword rank and fused score; the **constructed context** as a budget bar (hit / neighbor / parent / heading segments) and as highlighted passages in their filings; latency per stage. **Tuning:** see below |
 | **Tuning** (in Retrieval Lab) | Controls for chunk size, overlap, boundary strategy, semantic threshold, atomic unit size, `k`, budget and expansion. Index-time controls snap to the precomputed sweep grid and show recorded results; query-time controls re-run **live** against the dev questions on the production configuration. Output: quality (Recall@5, MRR, answer-span containment, Full-Evidence Rate, answer accuracy where measured) beside cost (chunks, tokens embedded, index size, mean context tokens, p95 retrieval and answer latency); change one control and the deltas show. Every number is labelled with its stage (intrinsic / screening / full) |
 | **Benchmarks** | Four tabs: **Sweeps** (parameter-performance curves, one per swept parameter, and the quality-versus-cost **Pareto frontier**, with the chosen production configuration marked), and the three below: **Chunking** (boundary alignment, fragmentation, size distributions and answer-span containment per configuration), **Retrieval** (Hit@k, MRR, nDCG, Context Recall and Full-Evidence Rate vs token budget, with confidence intervals; per-question drill-down showing which gold characters each configuration recovered), **Answers** (correctness, faithfulness, abstention, validator catch rates, baselines) |
 | **Ask** | Validated answer with claim-level badges and citations; the Retrieval Lab trace for that answer is one click away |
-| **Method** | Corpus definition, strategies, metrics, hypotheses, limitations, SEC attribution |
+| **Method** | Corpus definition, strategies, metrics, hypotheses, limitations, SEC attribution, and a plain-language **What this costs** section explaining the four resource categories |
+
+**Resource usage panel (Corpus and Method pages).** Four labelled sections, with no combined
+total: **Bandwidth** (SEC bytes downloaded on the wire and decompressed, requests, bytes
+avoided by cache hits), **Local embedding compute** (tokens embedded, seconds,
+tokens per second, per configuration), **Storage** (bytes by table and layer, hosted versus
+benchmark, against the free-plan limit), and **Paid generation** (Claude input/output
+tokens and dollars, by model and purpose: answering, judging). Each section states its
+unit and whether it is billed, so a visitor can tell a download size from an embedding
+token count from a dollar amount.
 
 Design: editorial and data-dense. A serif display face with a clean sans and a
 monospaced face for figures; light and dark themes; one consistent chart palette;
@@ -646,5 +718,7 @@ flowchart LR
 | 10 | Strategies are families; each parameter combination is a separately versioned configuration | Sweeps need many comparable configurations without ambiguity about what was run | More registry rows; names are generated deterministically |
 | 11 | Index-time and query-time parameters are separated | Query-time sweeps (k, budget, expansion) cost nothing to run; only index-time ones need embeddings | Query-time effects are measured on whichever embedding sets exist |
 | 12 | Staged evaluation (intrinsic, screening, full) | The full grid is ~2.0B tokens to embed; intrinsic metrics are free and screening narrows the field | Screening uses a sub-corpus; its results are labelled and never used as the final comparison |
-| 13 | Chunks above 480 tokens are embedded as averaged windows | `gte-small` truncates at 512 tokens, which would silently handicap large chunks | Averaged window embeddings are not the same as a native long-context embedding; recorded in the embedder parameters |
+| 13 | The primary experiment stays inside gte-small's native 480-token window; larger chunks and multi-window aggregation are a separate experiment | Truncation or window averaging is a second variable that would confound the chunk-size curve | The primary sweep cannot say anything about chunks above 480 tokens; the secondary experiment does, separately |
 | 14 | Hosted Supabase holds the production configuration only | The benchmark must not be sized to the free plan | The hosted database cannot replay every configuration's retrieval live; sweeps are shown from stored results |
+| 15 | Raw SEC filings are cached locally and disposably during parser development | Parser iteration would otherwise re-download the same filings repeatedly | Cache must be policed: git-ignored, deploy-ignored, fingerprint-verified, never read in production mode |
+| 16 | Four resource categories are accounted separately and never summed | Bandwidth, local embedding compute, storage and paid generation are different costs with different units and owners | The UI shows four panels, not one "cost" number |
