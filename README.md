@@ -6,11 +6,16 @@ retrieval quality, run over **1,000+ SEC 10-K filings**.
 
 - Source filings stay at the SEC. The platform owns a canonical, hierarchical
   representation of each filing with stable character offsets.
-- Six chunking strategies are stored as span layouts over that representation,
-  so every strategy exists for every filing without copying text.
+- Six chunking strategy families, swept over 41 parameter configurations (size,
+  overlap, boundary rule, semantic breakpoint, atomic unit size), are stored as span
+  layouts over that representation, so every configuration exists for every filing
+  without copying text.
 - Three separate benchmarks: **chunking** (the chunks themselves), **retrieval**
   (what reaches the model's context at a fixed token budget) and **answers**
   (correctness, grounding, abstention).
+- Tuning, not a winner: parameter curves and quality-versus-cost Pareto frontiers show
+  how recall, answer-span containment, answer accuracy, context tokens, index size and
+  latency trade off as each parameter moves.
 - Primary hypothesis: retrieving small structure-aligned units and expanding them
   through the document tree at query time beats any static chunking layout at
   equal token budget.

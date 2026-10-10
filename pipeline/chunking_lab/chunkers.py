@@ -1,9 +1,15 @@
 """Chunking strategies. Each produces a ``Layout`` (spans over the canonical text)
 and never copies text. All limits are in embedding-model tokens.
 
-Limits: 480 content tokens leaves room for the context prefix
-(company, fiscal year, item, heading; capped at 24 tokens) and the two special
-tokens inside gte-small's 512-token window.
+Every strategy is a family; each parameter combination is its own chunker
+configuration with a deterministic name (e.g. ``fixed.s480.o15``) and its own
+registered version. Limits are in embedding-model tokens.
+
+``MAX_TOKENS = 480`` is the largest chunk that fits gte-small's 512-token window
+alongside the context prefix (company, fiscal year, item, heading; <= 24 tokens)
+and two special tokens. Configurations above it are flagged ``embed_windowed``:
+they are embedded as several windows whose vectors are averaged, so the embedder
+never silently truncates them. 480 stands in for the conventional "512".
 """
 
 from __future__ import annotations
@@ -160,45 +166,132 @@ def _sentence_segs(doc: CanonicalDocument, tokenizer: Tokenizer, include_heading
 
 
 # ---------------------------------------------------------------------------
+# Configuration helpers
+# ---------------------------------------------------------------------------
+
+
+def _config(strategy: str, name: str, version: str, params: dict, size: int) -> ComponentVersion:
+    params = {**params, "embed_windowed": size > MAX_TOKENS}
+    return ComponentVersion("chunker", name, version, params=params, strategy=strategy, modules=_MOD)
+
+
+def _overlap_tokens(size: int, overlap_pct: int) -> int:
+    return round(size * overlap_pct / 100)
+
+
+def _split_units(doc, tokenizer, seg: Seg, limit: int) -> list[Seg]:
+    """Break an oversized segment on sentences, then on token windows."""
+    pieces = seg.parts or [seg]
+    out: list[Seg] = []
+    for piece in pieces:
+        if piece.tokens <= limit:
+            out.append(piece)
+            continue
+        for s, e in _windows(doc, tokenizer, piece.start, piece.end, limit, limit):
+            out.append(Seg(s, e, tokenizer.count(doc.text[s:e])))
+    return out
+
+
+def _pack_overlap(units: list[Seg], limit: int, overlap_tokens: int) -> list[tuple[int, int]]:
+    """Greedy packing of consecutive units; each chunk starts with up to
+    ``overlap_tokens`` of whole trailing units from the previous chunk."""
+    chunks: list[tuple[int, int]] = []
+    cur: list[Seg] = []
+    tokens = 0
+    for unit in units:
+        if cur and tokens + unit.tokens > limit:
+            chunks.append((cur[0].start, cur[-1].end))
+            carry: list[Seg] = []
+            carried = 0
+            for prev in reversed(cur):
+                if carried + prev.tokens > overlap_tokens:
+                    break
+                carry.insert(0, prev)
+                carried += prev.tokens
+            while carry and carried + unit.tokens > limit:
+                carried -= carry.pop(0).tokens
+            cur, tokens = carry, carried
+        cur.append(unit)
+        tokens += unit.tokens
+    if cur:
+        chunks.append((cur[0].start, cur[-1].end))
+    return chunks
+
+
+def _leaf_segs(doc: CanonicalDocument, tokenizer: Tokenizer) -> list[Seg]:
+    """Headings and leaf blocks in document order, with sentence parts for splitting."""
+    by_leaf: dict[int, list[tuple[int, int]]] = {}
+    for s, e, leaf in doc.sentence_spans():
+        by_leaf.setdefault(leaf, []).append((s, e))
+    flat = [span for spans in by_leaf.values() for span in spans]
+    counts = iter(tokenizer.count_batch([doc.text[s:e] for s, e in flat]))
+    parts = {leaf: [Seg(s, e, next(counts)) for s, e in spans] for leaf, spans in by_leaf.items()}
+    segs = [Seg(n.start, n.end, n.token_count, parts.get(n.ordinal)) for n in doc.leaves()]
+    heads = [(s, e) for s, e, _ in heading_spans(doc)]
+    head_counts = tokenizer.count_batch([doc.text[s:e] for s, e in heads])
+    segs += [Seg(s, e, c, heading=True) for (s, e), c in zip(heads, head_counts, strict=True)]
+    return sorted(segs, key=lambda x: x.start)
+
+
+# ---------------------------------------------------------------------------
 # Strategies
 # ---------------------------------------------------------------------------
 
 
 class FixedChunker(Chunker):
-    def __init__(self, size: int = MAX_TOKENS, overlap: int = 0, version: str = "1.0.0") -> None:
-        self.size, self.overlap = size, overlap
-        key = "fixed_overlap" if overlap else "fixed"
-        params = {"size": size, "overlap": overlap} if overlap else {"size": size}
-        self.version = ComponentVersion("chunker", key, version, params=params, strategy=key, modules=_MOD)
+    """Token windows of ``size`` tokens, each overlapping the previous by ``overlap_pct`` percent."""
+
+    def __init__(self, size: int = MAX_TOKENS, overlap_pct: int = 0, version: str = "1.0.0") -> None:
+        if not 0 <= overlap_pct < 100:
+            raise ValueError("overlap_pct must be in [0, 100)")
+        self.size, self.overlap_pct = size, overlap_pct
+        self.version = _config("fixed", f"fixed.s{size}.o{overlap_pct}", version,
+                               {"size": size, "overlap_pct": overlap_pct}, size)
 
     def spans(self, doc, tokenizer):
-        return _windows(doc, tokenizer, 0, len(doc.text), self.size, self.size - self.overlap)
+        overlap = _overlap_tokens(self.size, self.overlap_pct)
+        return _windows(doc, tokenizer, 0, len(doc.text), self.size, max(self.size - overlap, 1))
+
+
+class RecursiveChunker(Chunker):
+    """Splits on paragraph (block) boundaries, then sentences, then tokens, to a
+    ``target`` size. Not bound by sections: chunks may span a section boundary."""
+
+    def __init__(self, target: int = MAX_TOKENS, overlap_pct: int = 0, version: str = "1.0.0") -> None:
+        self.target, self.overlap_pct = target, overlap_pct
+        self.version = _config("recursive", f"recursive.t{target}.o{overlap_pct}", version,
+                               {"target": target, "overlap_pct": overlap_pct}, target)
+
+    def spans(self, doc, tokenizer):
+        units: list[Seg] = []
+        for seg in _leaf_segs(doc, tokenizer):
+            units.extend(_split_units(doc, tokenizer, seg, self.target) if seg.tokens > self.target else [seg])
+        return _pack_overlap(units, self.target, _overlap_tokens(self.target, self.overlap_pct))
 
 
 class SentenceChunker(Chunker):
     def __init__(self, max_tokens: int = MAX_TOKENS, version: str = "1.0.0") -> None:
         self.max_tokens = max_tokens
-        self.version = ComponentVersion("chunker", "sentence", version, params={"max": max_tokens},
-                                        strategy="sentence", modules=_MOD)
+        self.version = _config("sentence", f"sentence.max{max_tokens}", version, {"max": max_tokens}, max_tokens)
 
     def spans(self, doc, tokenizer):
-        return _pack(doc, tokenizer, _sentence_segs(doc, tokenizer), self.max_tokens)
+        return _pack(doc, tokenizer, _sentence_segs(doc, tokenizer), self.max_tokens, self.max_tokens)
 
 
 class StructuralChunker(Chunker):
     """Packs whole blocks within one section; never crosses a section boundary.
 
-    Used with ``target = max`` as the static structure-aware strategy, and with a
-    smaller target as the unit builder for the hierarchical strategy.
+    ``max_tokens`` is both the target and the limit. The hierarchical strategy
+    reuses the packing with a smaller target to build its retrieval units.
     """
 
-    def __init__(self, target: int = MAX_TOKENS, max_tokens: int = MAX_TOKENS, min_tokens: int = 64,
-                 key: str = "structural", version: str = "1.0.0") -> None:
-        self.target, self.max_tokens, self.min_tokens = target, max_tokens, min_tokens
-        self.version = ComponentVersion(
-            "chunker", key, version, params={"target": target, "max": max_tokens, "min": min_tokens},
-            strategy=key, modules=_MOD,
-        )
+    def __init__(self, max_tokens: int = MAX_TOKENS, min_tokens: int = 64, target: int | None = None,
+                 strategy: str = "structural", name: str | None = None, version: str = "1.0.0") -> None:
+        self.max_tokens, self.min_tokens = max_tokens, min_tokens
+        self.target = target or max_tokens
+        name = name or f"{strategy}.max{max_tokens}"
+        self.version = _config(strategy, name, version,
+                               {"max": max_tokens, "target": self.target, "min": min_tokens}, max_tokens)
 
     def spans(self, doc, tokenizer):
         children: dict[int, list[Node]] = {}
@@ -242,7 +335,7 @@ class StructuralChunker(Chunker):
             return spans
         merged = [spans[0]]
         for s, e in spans[1:]:
-            ps, pe = merged[-1]
+            ps, _ = merged[-1]
             if tokenizer.count(doc.text[s:e]) < self.min_tokens and tokenizer.count(doc.text[ps:e]) <= self.max_tokens:
                 merged[-1] = (ps, e)
             else:
@@ -251,29 +344,37 @@ class StructuralChunker(Chunker):
 
 
 class HierarchicalUnitChunker(StructuralChunker):
-    """Small structure-aligned retrieval units for query-time context construction."""
+    """Small structure-aligned retrieval units (``atomic`` tokens) for query-time
+    context construction. Expansion (parent / neighbours) and the context budget are
+    query-time parameters on the retrieval configuration, not part of the index."""
 
-    def __init__(self, target: int = 256, max_tokens: int = MAX_TOKENS, min_tokens: int = 32,
+    def __init__(self, atomic: int = 256, max_tokens: int = MAX_TOKENS, min_tokens: int = 32,
                  version: str = "1.0.0") -> None:
-        super().__init__(target=target, max_tokens=max_tokens, min_tokens=min_tokens, key="hierarchical",
-                         version=version)
+        self.atomic = atomic
+        super().__init__(max_tokens=max_tokens, min_tokens=min_tokens, target=atomic, strategy="hierarchical",
+                         name=f"hierarchical.a{atomic}", version=version)
 
 
 class SemanticChunker(Chunker):
-    """Breaks where the cosine distance between adjacent sentences exceeds the
-    document's ``percentile`` distance, then enforces min/max sizes. Never crosses
-    an Item boundary."""
+    """Breaks where the cosine distance between adjacent sentences is large, then
+    enforces min/max sizes. Never crosses an Item boundary.
 
-    def __init__(self, embed: Callable[[list[str]], np.ndarray], percentile: float = 90, min_tokens: int = 64,
-                 max_tokens: int = MAX_TOKENS, version: str = "1.0.0", embedder_id: str | None = None) -> None:
-        self.embed, self.percentile = embed, percentile
+    The breakpoint is either a ``percentile`` of the document's own adjacent-sentence
+    distances (default) or an absolute cosine ``distance`` threshold.
+    """
+
+    def __init__(self, embed: Callable[[list[str]], np.ndarray], percentile: float | None = 90,
+                 distance: float | None = None, min_tokens: int = 64, max_tokens: int = MAX_TOKENS,
+                 version: str = "1.0.0", embedder_id: str | None = None) -> None:
+        if (percentile is None) == (distance is None):
+            raise ValueError("give exactly one of percentile or distance")
+        self.embed, self.percentile, self.distance = embed, percentile, distance
         self.min_tokens, self.max_tokens = min_tokens, max_tokens
-        self.version = ComponentVersion(
-            "chunker", "semantic", version,
-            params={"breakpoint_percentile": percentile, "min": min_tokens, "max": max_tokens,
-                    "sentence_embedder": embedder_id},
-            strategy="semantic", modules=_MOD,
-        )
+        name = f"semantic.p{percentile:g}" if distance is None else f"semantic.d{distance:g}"
+        self.version = _config(
+            "semantic", name, version,
+            {"percentile": percentile, "distance": distance, "min": min_tokens, "max": max_tokens,
+             "sentence_embedder": embedder_id}, max_tokens)
 
     def spans(self, doc, tokenizer):
         segs = _sentence_segs(doc, tokenizer)
@@ -282,7 +383,7 @@ class SemanticChunker(Chunker):
         vecs = np.asarray(self.embed([doc.text[s.start:s.end] for s in segs]), dtype=np.float32)
         vecs /= np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-12
         dist = 1.0 - np.sum(vecs[:-1] * vecs[1:], axis=1)
-        threshold = float(np.percentile(dist, self.percentile))
+        threshold = float(np.percentile(dist, self.percentile)) if self.distance is None else self.distance
         item_starts = sorted(n.start for n in doc.nodes if n.node_type == "item")
 
         groups: list[list[Seg]] = [[segs[0]]]
@@ -296,7 +397,7 @@ class SemanticChunker(Chunker):
 
         spans: list[tuple[int, int]] = []
         for group in groups:
-            spans.extend(_pack(doc, tokenizer, group, self.max_tokens))
+            spans.extend(_pack(doc, tokenizer, group, self.max_tokens, self.max_tokens))
         return _merge_small_within_items(doc, tokenizer, spans, item_starts, self.min_tokens, self.max_tokens)
 
 
@@ -304,7 +405,7 @@ def _merge_small_within_items(doc, tokenizer, spans, item_starts, min_tokens, ma
     merged: list[tuple[int, int]] = []
     for s, e in spans:
         if merged:
-            ps, pe = merged[-1]
+            ps, _ = merged[-1]
             same_item = bisect.bisect_right(item_starts, ps) == bisect.bisect_right(item_starts, s)
             if same_item and tokenizer.count(doc.text[s:e]) < min_tokens and \
                     tokenizer.count(doc.text[ps:e]) <= max_tokens:
@@ -314,14 +415,21 @@ def _merge_small_within_items(doc, tokenizer, spans, item_starts, min_tokens, ma
     return merged
 
 
-def default_chunkers(sentence_embed: Callable[[list[str]], np.ndarray] | None, embedder_id: str | None = None):
-    chunkers: list[Chunker] = [
-        FixedChunker(),
-        FixedChunker(overlap=120),
-        SentenceChunker(),
-        StructuralChunker(),
-        HierarchicalUnitChunker(),
-    ]
-    if sentence_embed is not None:
-        chunkers.insert(4, SemanticChunker(sentence_embed, embedder_id=embedder_id))
-    return chunkers
+def build_chunker(strategy: str, *, embed: Callable[[list[str]], np.ndarray] | None = None,
+                  embedder_id: str | None = None, **params) -> Chunker:
+    """Build one chunker configuration from a strategy family and its parameters."""
+    if strategy == "fixed":
+        return FixedChunker(**params)
+    if strategy == "recursive":
+        return RecursiveChunker(**params)
+    if strategy == "sentence":
+        return SentenceChunker(**params)
+    if strategy == "structural":
+        return StructuralChunker(**params)
+    if strategy == "hierarchical":
+        return HierarchicalUnitChunker(**params)
+    if strategy == "semantic":
+        if embed is None:
+            raise ValueError("semantic chunking needs a sentence embedder")
+        return SemanticChunker(embed, embedder_id=embedder_id, **params)
+    raise ValueError(f"unknown strategy {strategy!r}")

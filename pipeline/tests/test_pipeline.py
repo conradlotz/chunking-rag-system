@@ -15,9 +15,11 @@ from chunking_lab.canonical import build_canonical, split_sentences
 from chunking_lab.chunkers import (
     FixedChunker,
     HierarchicalUnitChunker,
+    RecursiveChunker,
     SemanticChunker,
     SentenceChunker,
     StructuralChunker,
+    build_chunker,
 )
 from chunking_lab.metrics import SpanIndex, layout_metrics, span_containment
 from chunking_lab.model import CanonicalDocument
@@ -113,11 +115,14 @@ def _chunkers():
 
     return [
         FixedChunker(size=120),
-        FixedChunker(size=120, overlap=30),
+        FixedChunker(size=120, overlap_pct=25),
+        RecursiveChunker(target=120),
+        RecursiveChunker(target=120, overlap_pct=20),
         SentenceChunker(max_tokens=120),
-        StructuralChunker(target=120, max_tokens=120, min_tokens=20),
-        HierarchicalUnitChunker(target=60, max_tokens=120, min_tokens=10),
+        StructuralChunker(max_tokens=120, min_tokens=20),
+        HierarchicalUnitChunker(atomic=60, max_tokens=120, min_tokens=10),
         SemanticChunker(embed, min_tokens=20, max_tokens=120),
+        SemanticChunker(embed, percentile=None, distance=0.5, min_tokens=20, max_tokens=120),
     ]
 
 
@@ -133,7 +138,7 @@ def test_layout_invariants(doc, chunker):
         assert t <= limit, (chunker.version.id, t)
         n = doc.nodes[node]
         assert n.start <= s and e <= n.end
-        assert s >= prev_end or chunker.version.strategy == "fixed_overlap"
+        assert s >= prev_end or chunker.version.params.get("overlap_pct")
         prev_end = e
     # coverage: every non-space character belongs to a chunk (headings of skipped items excluded by design)
     covered = np.zeros(len(doc.text), dtype=bool)
@@ -143,14 +148,78 @@ def test_layout_invariants(doc, chunker):
     assert not uncovered, f"{chunker.version.id} left {len(uncovered)} characters uncovered"
 
 
-def test_overlap_is_configured(doc):
-    layout = FixedChunker(size=120, overlap=30).layout(doc, TOK)
+def test_fixed_overlap_is_configured(doc):
+    layout = FixedChunker(size=120, overlap_pct=25).layout(doc, TOK)
     overlaps = [TOK.count(doc.text[s2:e1]) for e1, s2 in zip(layout.ends, layout.starts[1:], strict=False) if s2 < e1]
     assert overlaps and all(abs(o - 30) <= 1 for o in overlaps[:-1])
 
 
+def test_overlap_costs_more_embedding_tokens(doc):
+    base = FixedChunker(size=120).layout(doc, TOK).total_tokens
+    overlapped = FixedChunker(size=120, overlap_pct=30).layout(doc, TOK).total_tokens
+    assert overlapped > base * 1.3
+
+
+def test_recursive_overlap_carries_whole_units(doc):
+    layout = RecursiveChunker(target=120, overlap_pct=25).layout(doc, TOK)
+    shared = [e1 - s2 for e1, s2 in zip(layout.ends, layout.starts[1:], strict=False) if s2 < e1]
+    assert shared, "expected overlapping chunks"
+    assert all(TOK.count(doc.text[s2:e1]) <= 30 for e1, s2 in zip(layout.ends, layout.starts[1:], strict=False)
+               if s2 < e1)
+
+
+def test_recursive_respects_paragraph_boundaries_more_than_fixed(doc):
+    fixed = layout_metrics(doc, FixedChunker(size=120).layout(doc, TOK), limit=120).summary(120)
+    recursive = layout_metrics(doc, RecursiveChunker(target=120).layout(doc, TOK), limit=120).summary(120)
+    assert recursive["boundaries"]["mid_sentence_rate"] < fixed["boundaries"]["mid_sentence_rate"]
+
+
+def test_config_names_are_deterministic_and_distinct():
+    names = {
+        FixedChunker(size=480, overlap_pct=15).version.id,
+        FixedChunker(size=480, overlap_pct=0).version.id,
+        FixedChunker(size=256, overlap_pct=15).version.id,
+        RecursiveChunker(target=480, overlap_pct=15).version.id,
+        StructuralChunker(max_tokens=480).version.id,
+        HierarchicalUnitChunker(atomic=256).version.id,
+    }
+    assert len(names) == 6
+    assert FixedChunker(size=480, overlap_pct=15).version.id == "chunker/fixed.s480.o15@1.0.0"
+    assert HierarchicalUnitChunker(atomic=256).version.id == "chunker/hierarchical.a256@1.0.0"
+
+
+def test_oversize_configs_are_flagged_for_windowed_embedding():
+    assert FixedChunker(size=1024).version.params["embed_windowed"] is True
+    assert FixedChunker(size=480).version.params["embed_windowed"] is False
+
+
+def test_build_chunker_dispatch_and_validation():
+    assert build_chunker("fixed", size=256, overlap_pct=10).version.id == "chunker/fixed.s256.o10@1.0.0"
+    with pytest.raises(ValueError):
+        build_chunker("semantic", percentile=90)  # needs an embedder
+    with pytest.raises(ValueError):
+        FixedChunker(size=100, overlap_pct=100)
+    with pytest.raises(ValueError):
+        build_chunker("nope")
+
+
+def test_sweep_grid_and_cost_model():
+    from chunking_lab.sweeps import SWEEPS, all_index_configs, estimate_embedding_cost, query_configs
+
+    configs = all_index_configs()
+    assert len(configs) == 20 + 9 + 3 + 2 + 4 + 3
+    ids = {build_chunker(st, embed=lambda t: np.zeros((len(t), 4)), **cfg).version.id for st, cfg in configs}
+    assert len(ids) == len(configs), "every configuration must have a unique version id"
+    assert len(query_configs()) == 3 * 4 * 3 * 3 * 3
+    assert {s.strategy for s in SWEEPS} == {"fixed", "recursive", "structural", "sentence", "semantic",
+                                            "hierarchical"}
+    cost = estimate_embedding_cost(40_000_000, tokens_per_second=100_000)
+    assert cost["configurations"] == len(configs)
+    assert cost["total_tokens"] > 40_000_000 * len(configs)  # overlap and semantic sentences add work
+
+
 def test_structural_never_crosses_section(doc):
-    layout = StructuralChunker(target=120, max_tokens=120, min_tokens=20).layout(doc, TOK)
+    layout = StructuralChunker(max_tokens=120, min_tokens=20).layout(doc, TOK)
     m = layout_metrics(doc, layout, limit=120)
     assert m.cross_section_chunks == 0
     assert m.orphan_headings == 0
@@ -158,7 +227,7 @@ def test_structural_never_crosses_section(doc):
 
 def test_fixed_damages_structure_more_than_structural(doc):
     fixed = layout_metrics(doc, FixedChunker(size=120).layout(doc, TOK), limit=120).summary(120)
-    structural = layout_metrics(doc, StructuralChunker(target=120, max_tokens=120).layout(doc, TOK),
+    structural = layout_metrics(doc, StructuralChunker(max_tokens=120).layout(doc, TOK),
                                 limit=120).summary(120)
     assert fixed["boundaries"]["mid_sentence_rate"] > structural["boundaries"]["mid_sentence_rate"]
     assert fixed["structure"]["cross_section_chunk_rate"] > structural["structure"]["cross_section_chunk_rate"]

@@ -40,7 +40,7 @@ flowchart LR
         DIS["Discover"] --> FET["Fetch\nrate-limited, not persisted"]
         FET --> PAR["Parse + segment items"]
         PAR --> CAN["Canonicalise\ntext + tree + offsets"]
-        CAN --> CHK["Chunk: 6 layouts"]
+        CAN --> CHK["Chunk: configurations\nas span layouts"]
         CHK --> EMB["Embed: gte-small"]
         EMB --> LOAD["Load"]
     end
@@ -78,7 +78,7 @@ flowchart LR
 | Component | Technology | Responsibility |
 |-----------|------------|----------------|
 | `pipeline/` | Python 3.12 (uv) | SEC connector, parsing, canonicalisation, chunkers, embedding, loading, benchmark runners, statistics |
-| `supabase/` | SQL migrations, one Edge Function | Schema, integrity triggers, `search_chunks()`, `build_context()`, stats views; query embedding function |
+| `supabase/` | SQL migrations, one Edge Function | Schema, integrity triggers, `search_units()`, `build_context()`, `pareto_frontier()`, stats views; query embedding function |
 | `apps/web/` | Next.js App Router, TypeScript, Tailwind, shadcn/ui | UI, API routes, answer generation, output validators |
 | `packages/contracts/` | JSON Schema | Answer schema and context-span schema shared by TypeScript and Python |
 
@@ -113,7 +113,7 @@ flowchart TD
     S --> C["Canonicalise\ndeterministic text, document tree,\nsentence offsets, canonical SHA-256"]
     C --> V{"Validate\ntree invariants, items found,\nno empty sections"}
     V -- fail --> X["stage = failed\nreason logged, filing skipped"]
-    V -- ok --> K["Chunk\n6 strategies -> span layouts"]
+    V -- ok --> K["Chunk\nconfigurations -> span layouts"]
     K --> E["Embed\nsearch units only, cached by text hash"]
     E --> L["Load\nCOPY into hosted and benchmark DBs"]
     L --> R["refresh stats views"]
@@ -180,39 +180,88 @@ The canonical text is a deterministic serialisation of the tree:
 
 ---
 
-## 6. Chunking strategies as span layouts
+## 6. Chunking: configurations, layouts and sweeps
+
+A **strategy** is a family; a **configuration** is a strategy plus parameters.
+Every configuration is its own immutable component version with a deterministic
+name, for example `chunker/fixed.s480.o15@1.0.0` (480-token windows, 15% overlap).
+Nothing about a configuration is implied by its strategy name.
 
 ```mermaid
 flowchart LR
-    CT["Canonical text + tree\n(stored once)"] --> L1["fixed\nstarts[], ends[], tokens[]"]
-    CT --> L2["fixed_overlap"]
-    CT --> L3["sentence"]
-    CT --> L4["structural"]
-    CT --> L5["semantic"]
-    CT --> L6["hierarchical units"]
-    L1 & L2 & L3 & L4 & L5 & L6 --> CL[("chunk_layouts\none row per filing x strategy")]
-    L1 & L2 & L3 & L4 & L5 & L6 --> SU[("chunks\nsearch units: span + node ref\n+ embedding + tsvector")]
+    CT["Canonical text + tree\n(stored once)"] --> CF["Chunker configuration\nstrategy + parameters, versioned"]
+    CF --> LAY[("chunk_layouts\nstarts[], ends[], token_counts[], node_ids[]\none row per document x configuration")]
+    LAY --> ES["Embedding set\nlayout + embedder + analyzer versions"]
+    ES --> U[("units\nspan, node ref, embedding, tsvector")]
+    U --> RC["Retrieval configuration\nk, mode, budget, expansion"]
 ```
 
-| Key | Family | Boundaries | Parameters |
-|-----|--------|-----------|------------|
-| `fixed` | static | Token windows, structure-blind | 480 tokens |
-| `fixed_overlap` | static | Token windows with overlap | 480 / 120 overlap |
-| `sentence` | static | Whole sentences packed to the limit (uses `sentence_starts`) | ≤ 480 |
-| `structural` | static | Follows items, sections and blocks: packs small sibling blocks, splits long blocks on sentences, never crosses a section | 64–480 |
-| `semantic` | static | Sentence embeddings; new chunk where adjacent similarity falls below the 90th-percentile breakpoint | 64–480 |
-| `hierarchical` | hierarchical | Small structure-aligned **units** (blocks, or sentence groups of long blocks) retrieved, then expanded through the tree at query time (section 8) | unit ≈ 256, max 480 |
+| Strategy | Boundary rule | Index-time parameters |
+|----------|---------------|-----------------------|
+| `fixed` | Token windows, structure-blind | `size`, `overlap_pct` |
+| `recursive` | Paragraph boundaries, then sentences, then tokens, to a target; may span sections | `target`, `overlap_pct` |
+| `sentence` | Whole sentences packed to a limit | `max_tokens` |
+| `structural` | Follows items, sections and blocks; never crosses a section; packs blocks, splits long blocks on sentences | `max_tokens` |
+| `semantic` | New chunk where adjacent-sentence similarity drops; never crosses an Item | `percentile` (of the document's own distances) or an absolute `distance` |
+| `hierarchical` | Small structure-aligned **atomic** units retrieved, then expanded through the tree at query time (section 8.2) | `atomic` |
 
-- **480 tokens** everywhere: `gte-small` accepts 512 tokens including special
-  tokens and the context prefix (`Company · FY · Item · heading`) that every unit
-  is embedded with. All token counts use the `gte-small` tokenizer.
-- A strategy is defined by its layout only. Each layout row holds
-  `starts[]`, `ends[]`, `token_counts[]` for one filing, so all six layouts for
-  1,000 filings fit in a few megabytes and are always available for the chunking
-  benchmark and the boundary visualisation.
-- Each search unit in `chunks` references the smallest tree node containing it
-  (`node_id`), which is what lets the context constructor navigate from a hit to
-  its parent section and siblings.
+### 6.1 Index-time and query-time parameters
+
+The cost of a parameter decides how it is swept.
+
+| Kind | Parameters | Consequence |
+|------|------------|-------------|
+| **Index-time** (changes the chunks) | size, overlap, boundary rule / strategy, semantic breakpoint, atomic unit size | Each value is a new layout and a new embedding set |
+| **Query-time** (applied when retrieving) | `k`, retrieval `mode`, context `budget_tokens`, `parent_expansion` (levels up the tree), `neighbor_expansion` (± adjacent blocks) | Swept without re-embedding anything; recorded on `retrieval_configs.params` |
+
+The sweep grids live in `pipeline/chunking_lab/sweeps.py`. There are **41
+index-time configurations** (fixed 5 sizes × 4 overlaps, recursive 3 × 3,
+structural 3, sentence 2, semantic 4 breakpoints, hierarchical 3 atomic sizes)
+and 324 query-time combinations (3 modes × 4 k × 3 budgets × 3 × 3 expansions).
+
+### 6.2 Staged evaluation
+
+Embedding all 41 configurations over the whole corpus is about 2.0 billion
+tokens, so the grid is not embedded blindly. Each configuration moves through
+stages, and only the ones that earn it advance:
+
+| Stage | What runs | Corpus | Cost |
+|-------|-----------|--------|------|
+| **Intrinsic** | Chunking-benchmark metrics for every configuration (size distribution, boundary alignment, structural integrity, answer-span containment) | All filings | Free: no embeddings, no model calls |
+| **Screening** | Shortlisted configurations embedded and scored on the dev questions, with the full query-time grid | The filings holding the dev questions' evidence plus a fixed set of distractor filings | Embedding only the screening corpus |
+| **Full** | Pareto-optimal and hypothesis-critical configurations embedded and scored on the test questions | **Entire corpus (1,000+ filings)** | Embedding the whole corpus once per configuration |
+
+The final comparison is always on the full corpus. Screening only decides which
+configurations are worth embedding there, and screening results are labelled as
+such wherever they are shown. The wall time of the grid depends almost entirely on
+embedding throughput: 2.0 billion tokens is about 6 hours at 100,000 tokens/s, 56 hours at
+10,000 and 185 hours at 3,000. Throughput is therefore measured on the first
+filings (ingest telemetry) before any grid is scheduled, and replaces every assumed rate.
+
+### 6.3 Embedding window
+
+`gte-small` reads at most 512 tokens including two special tokens and a context
+prefix (`Company · FY · Item · heading`, at most 24 tokens), so **480 content
+tokens** is the largest chunk that is embedded in one pass, and 480 stands in for
+the conventional "512" in every sweep. Configurations above 480 (768, 1,024) are
+flagged `embed_windowed`: each chunk is embedded as several windows whose
+vectors are averaged and renormalised, so the model never silently truncates
+the text and biases the comparison against large chunks. The embedder's
+parameters record this mode.
+
+### 6.4 Layouts, units and what is stored
+
+- A layout row holds `starts[]`, `ends[]`, `token_counts[]` and `node_ids[]` for
+  one document and one configuration. Text is never copied; it is sliced from the
+  canonical text, so any configuration is cheap to keep and always available for
+  the boundary visualisation.
+- Units (the embedded, keyword-indexed rows) exist only for embedding sets that
+  were built. `embedding_sets.retention` marks them `ephemeral`, `retained` or
+  `production`; ephemeral sets are dropped once their results are recorded.
+- Each unit references the smallest tree node containing it (`node_id`), which is
+  what lets the context constructor move from a hit to its parent and neighbours.
+- Every measured point (configuration, stage, quality, cost) is written to
+  `sweep_points`, from which the Pareto frontier is computed in SQL.
 
 ---
 
@@ -227,9 +276,11 @@ flowchart LR
 - A **parity test** embeds a fixed sample both ways and requires cosine similarity
   ≥ 0.999. Without it, a silent mismatch would degrade every result.
 - Stored as `halfvec(384)` (768 bytes per unit).
-- Volume: six strategies plus sentence embeddings for semantic chunking come to
-  roughly 6–7 × the corpus tokens (~260M tokens). This is a one-off batch job,
-  run on a GPU (or a many-core CPU overnight), and fully cached for re-runs.
+- Volume depends on the configuration: every configuration embeds roughly the corpus
+  token count (overlap multiplies it by 1 / (1 − overlap); semantic chunking also embeds
+  every sentence once). The whole 41-configuration grid is about 2.0 billion tokens, which
+  is why it is staged (section 6.2) and why throughput is measured from the first filing.
+  Corpus embedding is a batch job, run on a GPU or many-core CPU, and fully cached for re-runs.
 
 ---
 
@@ -237,12 +288,14 @@ flowchart LR
 
 ### 8.1 Search
 
-`rag.search_chunks()` serves both the live site and the benchmarks:
+`rag.search_units()` serves both the live site and the benchmarks. It searches
+one embedding set, so the chunker, embedder and keyword analyzer versions are
+fixed by the argument:
 
 ```
-search_chunks(query_embedding halfvec(384), query_text, strategy, mode,
-              k, tickers[], fiscal_years[], items[], exact, candidates, oversample, rrf_k)
-  -> chunk_id, filing_id, node_id, start_char, end_char, token_count,
+search_units(query_embedding halfvec(384), query_text, embedding_set_id, mode,
+             k, tickers[], fiscal_years[], items[], exact, candidates, oversample, rrf_k)
+  -> unit_id, canonical_document_id, node_id, start_char, end_char, token_count,
      score, vector_rank, keyword_rank, vector_similarity
 ```
 
@@ -267,35 +320,37 @@ pgvector's iterative index scans so filtered queries still return `k` results.
 
 ### 8.2 Context construction
 
-`rag.build_context(chunk_ids[], scores[], budget_tokens, policy)` returns an
-ordered list of **context spans** `(filing_id, start, end, tokens, role, source_chunk_id)`.
-It is the second half of retrieval and is benchmarked as such.
+`rag.build_context(unit_ids[], scores[], budget_tokens, policy, params)` returns an
+ordered list of **context spans** `(document_id, start, end, tokens, role, source_unit_id)`.
+It is the second half of retrieval, benchmarked as such, and it is what lets
+**retrieval granularity be tuned separately from generation granularity**: small
+units are retrieved for precision, and the context given to the model is larger.
 
-| Policy | Behaviour |
-|--------|-----------|
-| `static` | Hits in rank order until the budget is reached; overlapping spans merged and counted once |
-| `parent` | Each hit replaced by its enclosing section when that fits the remaining budget, else by the hit alone |
-| `window` | Each hit plus its previous and next sibling blocks |
-| `dynamic` | Budgeted expansion through the tree (below) |
+| Policy | Behaviour | Parameters |
+|--------|-----------|------------|
+| `static` | Hits in rank order until the budget is reached; overlapping spans merged and counted once | none |
+| `expand` | Each hit plus `neighbor_expansion` adjacent blocks either side, and `parent_expansion` levels of enclosing section, as far as the budget allows | `parent_expansion` 0-2, `neighbor_expansion` 0-2 |
+| `dynamic` | Budgeted utility-based expansion through the tree (below) | decay, budget |
 
 ```mermaid
 flowchart TD
-    H["Ranked units from search_chunks()"] --> A["Take next hit in rank order"]
+    H["Ranked units from search_units()"] --> A["Take next hit in rank order"]
     A --> B["Add hit span + heading breadcrumb"]
     B --> C["Generate candidate expansions\nprev sibling, next sibling,\nparent section (if small), table header"]
     C --> D["Utility = hit score x decay^distance\n/ token cost"]
     D --> E{"Best candidate fits\nremaining budget?"}
-    E -- yes --> F["Add, merge with adjacent spans\nin the same filing"]
+    E -- yes --> F["Add, merge with adjacent spans\nin the same document"]
     F --> D
     E -- no --> G{"More hits and\nbudget left?"}
     G -- yes --> A
-    G -- no --> O["Order spans by filing rank,\nthen document position;\nemit with roles: hit / sibling / parent / heading"]
+    G -- no --> O["Order spans by document rank,\nthen position;\nemit with roles: hit / neighbor / parent / heading"]
 ```
 
 The constructor is implemented in SQL so the live site and the benchmarks run
-the same code (P6), and its policy and parameters are recorded in every
-benchmark result. Whether `dynamic` beats the best static layout at an equal
-token budget is the project's primary research hypothesis (TEST_STRATEGY section 9).
+the same code (P6), and its version and parameters are recorded on the retrieval
+configuration. Whether expansion over small units beats the best static layout at
+an equal token budget is the project's primary research hypothesis
+(TEST_STRATEGY section 9).
 
 ---
 
@@ -315,7 +370,7 @@ sequenceDiagram
     W->>DB: check_rate_limit()
     W->>EF: embed(question)
     EF-->>W: halfvec(384)
-    W->>DB: search_chunks(...)
+    W->>DB: search_units(...)
     DB-->>W: ranked units with ranks and scores
     W->>DB: build_context(units, budget, policy)
     DB-->>W: context spans with roles and text
@@ -348,13 +403,17 @@ sequenceDiagram
 
 | Environment | Holds | Purpose |
 |-------------|-------|---------|
-| **Benchmark Postgres** (local Docker or CI runner, same migrations) | Everything: canonical filings, tree, all six layouts, **every strategy's search units embedded**, keyword indexes | Runs the retrieval and answer benchmarks over the full corpus with no storage ceiling |
-| **Hosted Supabase** (free plan, isolated `rag` schema) | Canonical filings, tree, all six layouts, the **serving** strategy's embedded units, benchmark results, stats, logs | Powers the live UI: corpus views, boundary visualisation for every strategy, live retrieval on serving strategies, benchmark replays for the rest |
+| **Benchmark Postgres** (local Docker or CI runner, same migrations) | Everything: canonical documents, tree, all layouts, **the embedding sets for every configuration under test**, keyword indexes | Runs the retrieval and answer benchmarks over the full corpus with no storage ceiling |
+| **Hosted Supabase** (free plan, isolated `rag` schema) | Canonical documents, tree, retained layouts, the **production configuration's** embedded units, benchmark results, sweep points, stats, logs | Powers the live UI: corpus views, boundary visualisation for any retained configuration, live retrieval on the production configuration, sweep results replayed from stored points |
 
-Which strategies are live is a flag (`strategies.serving`), not a design choice
-baked into the schema. The default serving strategy is `hierarchical`. More can
-be switched on as long as measured storage allows; the hosted size is shown on
-the Corpus page.
+Which configuration is live is a single pointer (`production_config`) to a
+retrieval configuration, not a property of the schema. **Hosted Supabase holds
+the artifacts for the winning production configuration only**; the benchmark
+corpus is never sized to fit it. The pointer is set from the full-corpus
+benchmark result (the best point on the Pareto frontier for the chosen
+quality/cost trade-off). Until then the hosted database holds the canonical
+layer and layouts, which is enough for the Corpus and Explorer pages. The
+hosted size is measured by the storage snapshots and shown on the Corpus page.
 
 Estimated hosted footprint for 1,000 filings (re-measured after the first 100
 are loaded):
@@ -363,7 +422,7 @@ are loaded):
 |------|----------|
 | Canonical text (TOAST-compressed) | 60–70 MB |
 | Document tree (nodes) | 40–50 MB |
-| Six chunk layouts (integer arrays) | < 15 MB |
+| Chunk layouts (integer arrays) for retained configurations | < 20 MB |
 | Serving units: `halfvec(384)` + binary HNSW | 140–160 MB |
 | Serving units: keyword `tsvector` + GIN | 90–110 MB |
 | Benchmark results, logs | < 20 MB |
@@ -377,126 +436,127 @@ can run two) or the project moves to the Pro plan. The architecture doesn't chan
 
 ## 11. Data model
 
+Layers are kept separate; each derived layer records the versions it came from,
+so any stored artifact can be traced and reproduced.
+
 ```mermaid
 erDiagram
+    component_versions ||--o{ canonical_documents : "parser, normalizer, tokenizer"
+    component_versions ||--o{ chunk_layouts : chunker
+    component_versions ||--o{ embedding_sets : "chunker, embedder, analyzer"
+    component_versions ||--o{ retrieval_configs : "retriever, context builder"
     companies ||--o{ filings : files
-    filings ||--o{ nodes : "tree"
+    filings ||--o{ canonical_documents : "derived text + tree"
+    canonical_documents ||--o{ nodes : tree
     nodes ||--o{ nodes : parent
-    filings ||--o{ chunk_layouts : "laid out by"
-    strategies ||--o{ chunk_layouts : defines
-    filings ||--o{ chunks : "search units"
-    strategies ||--o{ chunks : defines
-    nodes ||--o{ chunks : contains
-    questions ||--o{ gold_spans : "answered by"
-    filings ||--o{ gold_spans : contains
-    benchmark_runs ||--o{ chunking_results : produces
+    canonical_documents ||--o{ chunk_layouts : "boundaries"
+    chunk_layouts }o--|| embedding_sets : "layout of"
+    embedding_sets ||--o{ units : artifacts
+    embedding_sets ||--o{ retrieval_configs : "searched by"
+    retrieval_configs ||--o| production_config : live
+    questions ||--o{ gold_spans : "evidence"
+    canonical_documents ||--o{ gold_spans : "anchored to"
+    experiments ||--o{ sweep_points : measures
+    benchmark_runs ||--o{ sweep_points : produces
     benchmark_runs ||--o{ retrieval_results : produces
-    benchmark_runs ||--o{ answer_results : produces
+    ingest_runs ||--o{ ingest_events : records
+    ingest_runs ||--o{ storage_snapshots : records
 
-    companies {
-        text cik PK
-        text ticker
+    component_versions {
+        text id PK
+        text component
         text name
-        text sic
+        text version
+        text strategy
+        jsonb params
+        text code_sha
     }
     filings {
         uuid id PK
         text accession_no UK
-        text cik FK
-        int fiscal_year
-        date filed_at
         text source_url
         text source_sha256
-        text parser_version
-        text canonical_text
-        text canonical_sha256
+        date period_of_report
+    }
+    canonical_documents {
+        uuid id PK
+        uuid filing_id FK
+        text parser_version_id FK
+        text normalizer_version_id FK
+        text text
+        text text_sha256
         int token_count
     }
     nodes {
         bigint id PK
-        uuid filing_id FK
+        uuid canonical_document_id FK
         bigint parent_id FK
         text node_type
-        text item
-        text_array heading_path
         int start_char
         int end_char
-        int token_count
         int_array sentence_starts
     }
-    strategies {
-        text key PK
-        text family
-        jsonb params
-        bool serving
-    }
     chunk_layouts {
-        uuid filing_id PK
-        text strategy PK
+        uuid canonical_document_id PK
+        text chunker_version_id PK
         int_array starts
         int_array ends
         int_array token_counts
+        int_array node_ids
     }
-    chunks {
+    embedding_sets {
+        uuid id PK
+        text chunker_version_id FK
+        text embedder_version_id FK
+        text retention
+        bigint index_bytes
+    }
+    units {
         bigint id PK
-        uuid filing_id FK
-        text strategy FK
-        bigint node_id FK
+        uuid embedding_set_id FK
         int start_char
         int end_char
-        int token_count
         halfvec_384 embedding
         tsvector tsv
     }
-    questions {
+    retrieval_configs {
         text id PK
-        text tier
-        text split
-        text qtype
-        text origin
+        uuid embedding_set_id FK
+        int budget_tokens
+        jsonb params
     }
-    gold_spans {
-        uuid id PK
-        text question_id FK
-        uuid filing_id FK
-        int start_char
-        int end_char
-        text quote
-    }
-    benchmark_runs {
-        uuid id PK
-        text kind
-        text environment
-        jsonb corpus
-        jsonb config
-        jsonb summary
-    }
-    chunking_results {
-        uuid run_id FK
-        text strategy FK
-        jsonb metrics
-    }
-    retrieval_results {
-        uuid run_id FK
-        text question_id FK
-        text config_key
-        bigint_array ranked_chunk_ids
-        jsonb context_spans
-        jsonb metrics
-    }
-    answer_results {
-        uuid run_id FK
-        text question_id FK
-        text config_key
-        jsonb answer
-        jsonb validation
-        jsonb judgement
+    sweep_points {
+        bigint id PK
+        text experiment_id FK
+        text chunker_version_id FK
+        text stage
+        numeric recall_at_5
+        numeric answer_span_containment
+        bigint chunks
+        bigint index_bytes
     }
 ```
 
-Operational tables: `ingest_jobs`, `query_logs`, `answer_cache`, `rate_limits`.
-Materialised views `corpus_stats` and `strategy_stats` feed the UI's counters and
-are refreshed after each load.
+| Layer | Tables | Changes when |
+|-------|--------|--------------|
+| Registry | `strategies`, `component_versions` (immutable) | A component's behaviour or parameters change: register a new version |
+| Source | `companies`, `filings` | Never re-fetched except to verify `source_sha256`; the documents themselves are not stored |
+| Canonical | `canonical_documents`, `nodes` | New parser or normaliser version produces a new document; text is immutable |
+| Boundaries | `chunk_layouts` | New chunker configuration or version |
+| Artifacts | `embedding_sets`, `units` | New embedder or keyword analyzer version |
+| Retrieval | `retrieval_configs`, `production_config` | Query-time parameters or context builder change |
+| Evaluation | `questions`, `gold_spans`, `benchmark_runs`, `retrieval_results`, `answer_results`, `chunking_results`, `experiments`, `sweep_points` | Each benchmark run |
+| Telemetry | `ingest_runs`, `ingest_events`, `storage_snapshots`, `ingest_jobs` | Every ingest, from the first filing |
+
+Telemetry is recorded per filing and per stage (discover, fetch, parse, normalize,
+tokenize, chunk, embed, load, verify): wall and CPU time, bytes in and out, and
+stage-specific counts. `rag.snapshot_storage()` records the size of every table,
+TOAST relation and index at chosen points (for example after 1, 10 and 100
+filings), which is how storage per filing is projected to 1,000. Operational
+tables: `query_logs`, `answer_cache`, `rate_limits`. Materialised views
+`corpus_stats` and `layout_stats` feed the UI counters and are refreshed after each
+load. `rag.pareto_frontier()` computes the non-dominated configurations for any
+quality and cost column.
 
 ---
 
@@ -509,8 +569,9 @@ the system doing and how well?"
 |------|-------|
 | **Corpus** | Filings, companies, fiscal years, tokens, tree nodes, sentences; per-strategy chunk counts, token distributions and embedded units; ingestion throughput and failures; hosted storage used |
 | **Explorer** | One filing: the item/section tree beside the canonical text; **chunk boundaries for any strategy drawn as bands**, two strategies overlaid for comparison; token count per chunk; gold spans highlighted; link to the original on sec.gov |
-| **Retrieval Lab** | Run a query against a chosen strategy, mode, policy and budget: ranked units with vector rank, keyword rank and fused score; the **constructed context** as a budget bar (hit / sibling / parent / heading segments) and as highlighted passages in their filings; latency per stage |
-| **Benchmarks** | Three tabs: **Chunking** (boundary alignment, fragmentation, size distributions per strategy), **Retrieval** (Hit@k, MRR, nDCG, Context Recall and Full-Evidence Rate vs token budget, with confidence intervals; per-question drill-down showing which gold characters each configuration recovered), **Answers** (correctness, faithfulness, abstention, validator catch rates, baselines) |
+| **Retrieval Lab** | Two modes. **Query:** run a question against a chosen configuration, mode, `k`, budget and expansion: ranked units with vector rank, keyword rank and fused score; the **constructed context** as a budget bar (hit / neighbor / parent / heading segments) and as highlighted passages in their filings; latency per stage. **Tuning:** see below |
+| **Tuning** (in Retrieval Lab) | Controls for chunk size, overlap, boundary strategy, semantic threshold, atomic unit size, `k`, budget and expansion. Index-time controls snap to the precomputed sweep grid and show recorded results; query-time controls re-run **live** against the dev questions on the production configuration. Output: quality (Recall@5, MRR, answer-span containment, Full-Evidence Rate, answer accuracy where measured) beside cost (chunks, tokens embedded, index size, mean context tokens, p95 retrieval and answer latency); change one control and the deltas show. Every number is labelled with its stage (intrinsic / screening / full) |
+| **Benchmarks** | Four tabs: **Sweeps** (parameter-performance curves, one per swept parameter, and the quality-versus-cost **Pareto frontier**, with the chosen production configuration marked), and the three below: **Chunking** (boundary alignment, fragmentation, size distributions and answer-span containment per configuration), **Retrieval** (Hit@k, MRR, nDCG, Context Recall and Full-Evidence Rate vs token budget, with confidence intervals; per-question drill-down showing which gold characters each configuration recovered), **Answers** (correctness, faithfulness, abstention, validator catch rates, baselines) |
 | **Ask** | Validated answer with claim-level badges and citations; the Retrieval Lab trace for that answer is one click away |
 | **Method** | Corpus definition, strategies, metrics, hypotheses, limitations, SEC attribution |
 
@@ -582,3 +643,8 @@ flowchart LR
 | 7 | Context construction in SQL | One implementation for live and benchmark | More complex SQL; covered by dedicated tests |
 | 8 | Validate before display | Never show text that may be retracted | Answer appears all at once |
 | 9 | Postgres full-text + pgvector rather than OpenSearch | One store, free hosting, same hybrid concepts (BM25-style + k-NN + fusion) | `ts_rank_cd` is not BM25; noted in results |
+| 10 | Strategies are families; each parameter combination is a separately versioned configuration | Sweeps need many comparable configurations without ambiguity about what was run | More registry rows; names are generated deterministically |
+| 11 | Index-time and query-time parameters are separated | Query-time sweeps (k, budget, expansion) cost nothing to run; only index-time ones need embeddings | Query-time effects are measured on whichever embedding sets exist |
+| 12 | Staged evaluation (intrinsic, screening, full) | The full grid is ~2.0B tokens to embed; intrinsic metrics are free and screening narrows the field | Screening uses a sub-corpus; its results are labelled and never used as the final comparison |
+| 13 | Chunks above 480 tokens are embedded as averaged windows | `gte-small` truncates at 512 tokens, which would silently handicap large chunks | Averaged window embeddings are not the same as a native long-context embedding; recorded in the embedder parameters |
+| 14 | Hosted Supabase holds the production configuration only | The benchmark must not be sized to the free plan | The hosted database cannot replay every configuration's retrieval live; sweeps are shown from stored results |

@@ -77,19 +77,20 @@ flowchart TB
 | T6 | Every in-scope item found exactly once, in order (1 < 1A < 7 < 7A); the table of contents is never mistaken for the item body |
 | T7 | Tables serialised row by row; no cell text lost (checked against the HTML table cell count) |
 
-### 3.2 Layout invariants (all six strategies)
+### 3.2 Layout invariants (every strategy and every configuration)
 
 | ID | Invariant | Applies to |
 |----|-----------|------------|
 | L1 | `text[start:end]` is exactly the chunk; spans lie inside the in-scope items | all |
 | L2 | Ordered; every non-whitespace character of in-scope text is covered | all |
-| L3 | No overlap between consecutive spans | all except `fixed_overlap` |
-| L4 | Overlap is the configured token count (± 1 at boundaries) | `fixed_overlap` |
-| L5 | `token_count ≤ 480` with the `gte-small` tokenizer (prefix included) | all |
-| L6 | No sentence split unless a single sentence exceeds the limit | `sentence`, `structural`, `semantic`, `hierarchical` |
+| L3 | No overlap between consecutive spans | configurations with `overlap_pct = 0` |
+| L4 | Overlap is `round(size × overlap_pct / 100)` tokens (± 1 at boundaries) for `fixed`; for `recursive`, at most that many tokens and made of whole units | `fixed`, `recursive` with overlap |
+| L5 | `token_count` ≤ the configuration's limit (480 for single-window configurations); configurations above 480 carry `embed_windowed = true` | all |
+| L6 | No sentence split unless a single sentence exceeds the limit | `sentence`, `recursive`, `structural`, `semantic`, `hierarchical` |
 | L7 | No span crosses a section boundary | `structural`, `hierarchical` |
 | L8 | `node_id` is the smallest node containing the span | all search units |
 | L9 | Deterministic | all |
+| L10 | Every configuration in the sweep grids has a unique, deterministic version id (e.g. `chunker/fixed.s480.o15@1.0.0`); invalid parameters (overlap ≥ 100%, semantic with both or neither breakpoint) are rejected | all |
 
 ### 3.3 Property-based tests (Hypothesis)
 
@@ -172,19 +173,38 @@ Labelling rules:
 
 ## 6. Chunking benchmark (layouts only, no retrieval)
 
-Runs over **every filing × every strategy** using the layouts and the tree. No
-embeddings or model calls.
+Runs over **every filing × every chunker configuration** using the layouts and
+the tree. No embeddings and no model calls, so it is free and is the first stage
+of every sweep (section 7.4). Results go to `chunking_results` and, per
+configuration, to `sweep_points` with `stage = 'intrinsic'`.
 
 | Group | Metric | Meaning |
 |-------|--------|---------|
-| Volume | Chunks; tokens embedded; **redundancy** = tokens embedded ÷ corpus tokens | Index size and embedding cost each strategy implies |
-| Size | Mean, p5, p50, p95 tokens; share at the 480-token limit; share below 64 tokens | Truncation risk and fragments too small to carry meaning |
-| Boundary alignment | Share of boundaries on a sentence / block / section boundary; **mid-sentence split rate** | How well cuts respect language and structure |
-| Structural integrity | Chunks crossing a section boundary; **orphaned headings** (heading in a different chunk from its first block); **table fragmentation** (tables split across chunks) | Structural damage done by the cut |
-| Evidence integrity | **Intact-evidence rate** (gold spans fully inside one chunk); mean chunks needed to cover a gold span | Upper bound on how well any retriever can do with these chunks |
-| Coherence (optional) | Mean similarity between sentences within a chunk minus similarity across adjacent chunks | Topical consistency (uses sentence embeddings only) |
+| Volume | Chunks; tokens embedded; **redundancy** = tokens embedded ÷ corpus tokens | Index size and embedding cost the configuration implies |
+| Size | Mean, p5, p50, p95 tokens; share at the limit; share below 64 tokens; histogram | Truncation risk and fragments too small to carry meaning |
+| Boundary alignment | Share of cuts on a section / block / sentence boundary; **mid-sentence cut rate** | How well cuts respect language and structure |
+| Structural integrity | Chunks crossing a section boundary; **orphaned headings** (heading not in the same chunk as the start of its body); sentence, block and **table containment** (share held whole in one chunk) | Structural damage done by the cut |
+| **Answer-span containment** | Computed for every gold and silver evidence span; definitions below | Upper bound on what any retriever can recover from these chunks |
 
-Reported per strategy, per item (1, 1A, 7, 7A) and as distributions, not just means.
+### 6.1 Answer-span containment
+
+For an evidence span *g* and the chunks *c* of a configuration:
+
+| Metric | Definition | Reading |
+|--------|------------|---------|
+| **Contained rate** | Share of spans with some chunk covering all of *g* | The headline: the answer is not cut |
+| Containment ≥ 80% rate | Share where one chunk covers at least 80% of *g* | Tolerant version, matching the retrieval benchmark's θ |
+| Mean containment | Mean over spans of max over chunks of \|c ∩ g\| ÷ \|g\| | Average share of the answer one chunk holds |
+| **Cover count** | Fewest chunks whose union covers ≥ 80% of *g* | Chunks the retriever must get right; 1 is ideal |
+| **Dilution** | \|g\| ÷ size of the smallest chunk fully containing *g* | Share of that chunk that is evidence; large chunks contain more answers but dilute them |
+
+Containment rises with chunk size while dilution falls, which is exactly the
+size trade-off the sweeps measure; containment is an upper bound on retrieval
+recall for a configuration, and the gap between the two is retrieval error.
+Reported per configuration, per item, per question type (multi-span evidence is
+split across more chunks) and as distributions, not just means. Metric code
+lives in `pipeline/chunking_lab/metrics.py` and is tested against hand-worked
+spans (section 3.4).
 
 ---
 
@@ -194,13 +214,16 @@ Reported per strategy, per item (1, 1A, 7, 7A) and as distributions, not just me
 
 | Factor | Levels |
 |--------|--------|
-| Layout | `fixed`, `fixed_overlap`, `sentence`, `structural`, `semantic`, `hierarchical` |
+| Chunker configuration | The index-time grids in `pipeline/chunking_lab/sweeps.py`: fixed (size × overlap), recursive, structural, sentence, semantic, hierarchical (atomic size) |
 | Mode | `keyword`, `vector`, `hybrid` (+ `hybrid_rerank`) |
-| Context policy | `static` (all layouts); `parent`, `window`, `dynamic` (hierarchical) |
-| Budget | 1,000 / 2,000 / 4,000 / 8,000 tokens |
+| Context policy | `static` (all configurations); `expand` with `parent_expansion` and `neighbor_expansion` of 0-2; `dynamic` (hierarchical units) |
+| `k` | 3 / 5 / 10 / 20 |
+| Budget | 2,000 / 4,000 / 8,000 tokens (1,000 for the smallest-budget curve) |
 
-All run on the benchmark database over the **full corpus**, exact search, no
-metadata filters (filters are a separate experiment: same questions with
+Index-time parameters need a new embedding set per value; query-time ones (mode,
+`k`, budget, expansion) are free to sweep. The sweeps run in stages (section
+7.4). Final comparisons run on the benchmark database over the **full corpus**,
+exact search, no metadata filters (filters are a separate experiment: same questions with
 company and year filters supplied).
 
 ### 7.2 Ranking metrics (before context construction)
@@ -227,6 +250,58 @@ least θ = 80% of its characters (θ = 50% and 100% reported as sensitivity).
 
 Results are plotted as **budget curves** (metric vs B) per configuration, with
 95% confidence intervals, and broken down by question type.
+
+---
+
+### 7.4 Tuning sweeps and the Pareto frontier
+
+The question is not "which chunk size wins?" but **how quality trades against
+cost as each parameter moves**. There is no universal best configuration:
+
+> Quality = f(chunk size, overlap, boundary rule, retrieval mode, k, context budget, expansion, corpus, question type)
+
+**Design.**
+
+- One-factor-at-a-time curves for every parameter, and the full size × overlap
+  factorial for `fixed`, so interactions are visible (for example, overlap spends
+  context budget on duplicated text).
+- Every measured configuration is one `sweep_points` row holding **quality**
+  (Recall@5, MRR, answer-span containment, Full-Evidence Rate, answer accuracy
+  where measured) and **cost** (chunks, tokens embedded, index bytes, mean context
+  tokens, retrieval p95, answer p95), tagged with its stage.
+- Stages (ARCHITECTURE section 6.2): *intrinsic* on all filings for every
+  configuration; *screening* on the screening corpus with the query-time grid for
+  shortlisted configurations; *full* on the whole corpus and the test questions for
+  Pareto-optimal and hypothesis-critical configurations only.
+
+**Pareto frontier.** A configuration is on the frontier when no other has at least
+its quality at no more than its cost, with one strictly better
+(`rag.pareto_frontier()`). Pairs reported:
+
+| Quality | Cost |
+|---------|------|
+| Full-Evidence Rate | Mean context tokens |
+| Recall@5 | Index size (bytes) |
+| Answer accuracy | Mean context tokens |
+| Answer accuracy | p95 answer latency |
+
+The production configuration is chosen from the frontier on the **dev** questions,
+under a stated budget (for example, minimum cost within one confidence interval of
+the best Full-Evidence Rate), and recorded in `production_config` with the run that
+justified it.
+
+**Guarding against overfitting the sweep.** Selecting the best of 41+ configurations
+on any question set inflates its score, so:
+
+- selection uses dev questions only; the test questions are run once, on the
+  selected and pre-declared reference configurations;
+- the number of configurations tried is reported with every "best" claim;
+- curves carry confidence bands; where neighbouring points overlap no optimum is
+  claimed and the result is reported as a plateau;
+- screening results are always labelled as screening and never used as the final comparison.
+
+Every result is specific to this corpus, this embedder and this question set; the
+write-up says so, and gives the curves rather than a recommended number.
 
 ---
 
@@ -270,7 +345,7 @@ kappa must be ≥ 0.7, otherwise the rubric is revised and calibration repeated.
 | H1a | H1 holds at B = 2,000 and B = 4,000 | Paired bootstrap 95% CI of the difference excludes 0 at both budgets |
 | H1b | The gain is concentrated in multi-span and synthesis questions; little or none for factual and numeric lookups | Per-type differences (exploratory, reported with CIs) |
 | H1c | Dynamic construction needs fewer tokens to reach the same Context Recall as the best static layout | Budget at which each reaches Context Recall 0.8, read from the curves |
-| H1d | `dynamic` beats the simpler `parent` and `window` policies on the same units | Same rule as H1a |
+| H1d | `dynamic` beats the simpler `expand` policy (fixed parent / neighbour expansion) on the same units | Same rule as H1a |
 | H1e | Retrieval gains carry through to answers: higher key-fact recall and faithfulness at equal budget | Answer benchmark, same rule |
 
 If H1 is rejected, that is a reported result: it would mean a well-tuned static
@@ -287,6 +362,9 @@ budget curves show by how much.
 | H5 | Hybrid beats vector-only on numeric and named-entity questions | Hit@5 by question type |
 | H6 | Semantic chunking is no better than sentence packing at equal budget | Full-Evidence Rate@2,000 |
 | H7 | Closed-book accuracy is materially above zero, so faithfulness and citation accuracy are needed to show retrieval's value | Answer benchmark baselines |
+| H8 | There is no single best chunk size: the size maximising Hit@5 differs between question types (for example numeric lookup versus synthesis) | Argmax of the size curve per type, with confidence bands (exploratory) |
+| H9 | Overlap has diminishing returns: the Recall@5 gain per added embedded token from 20% to 30% overlap is smaller than from 0% to 20%, and at an equal context budget overlap does not raise Full-Evidence Rate | `fixed` size × overlap grid |
+| H10 | Chunk size and context budget are partly interchangeable: hierarchical atomic units of 128-256 tokens with expansion reach the best static Full-Evidence Rate at lower mean context tokens | Pareto frontier, Full-Evidence Rate vs mean context tokens |
 
 ---
 
@@ -375,7 +453,8 @@ context policy, model IDs, seeds and the corpus snapshot (filing count and
 - [ ] ≥ 1,000 filings loaded; corpus quality gates passed.
 - [ ] All CI gates green.
 - [ ] Gold set reviewed; silver audit done.
-- [ ] Chunking benchmark complete for all strategies.
+- [ ] Chunking benchmark complete for every configuration in the sweep grids.
+- [ ] Sweeps complete through their stages; parameter curves and Pareto frontiers published; production configuration chosen on dev and recorded.
 - [ ] Retrieval benchmark complete for all configurations and budgets.
 - [ ] Judge calibrated (kappa reported); answer benchmark complete with baselines.
 - [ ] Embedding parity, serving parity and ANN recall reported.

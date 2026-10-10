@@ -167,6 +167,43 @@ exception when raise_exception then
 end;
 $$;
 
+-- Tuning experiments and Pareto frontier ---------------------------------------
+insert into rag.component_versions (id, component, name, version, strategy, params) values
+  ('chunker/structural.max256@0.0.0', 'chunker', 'structural.max256', '0.0.0', 'structural', '{"max": 256}'),
+  ('chunker/structural.max1024@0.0.0', 'chunker', 'structural.max1024', '0.0.0', 'structural', '{"max": 1024}');
+
+insert into rag.experiments (id, name, strategy, axes, stage)
+values ('exp-structural-max', 'structural max sweep', 'structural', '{"max": [256, 480, 1024]}', 'screening');
+
+-- cost = chunks (lower better); quality = recall_at_5 (higher better)
+-- A (256): recall .95, 91k chunks   B (480): recall .93, 48k   C (1024): recall .90, 27k
+-- D (dominated by B): recall .91, 60k
+insert into rag.sweep_points (experiment_id, chunker_version_id, params, stage, recall_at_5, chunks) values
+  ('exp-structural-max', 'chunker/structural.max256@0.0.0',  '{"max": 256}',  'screening', 0.95, 91000),
+  ('exp-structural-max', 'chunker/structural@0.0.0',         '{"max": 480}',  'screening', 0.93, 48000),
+  ('exp-structural-max', 'chunker/structural.max1024@0.0.0', '{"max": 1024}', 'screening', 0.90, 27000),
+  ('exp-structural-max', 'chunker/structural@0.0.0',         '{"max": 480, "variant": "d"}', 'screening', 0.91, 60000),
+  ('exp-structural-max', 'chunker/structural@0.0.0',         '{"max": 480, "variant": "no-metric"}', 'screening', null, 10000);
+
+do $$
+declare
+  v_params jsonb;
+  v_n int;
+begin
+  select count(*) into v_n from rag.pareto_frontier('exp-structural-max', 'recall_at_5', 'chunks');
+  if v_n <> 3 then raise exception 'pareto frontier should keep 3 points, got %', v_n; end if;
+  if exists (
+    select 1 from rag.pareto_frontier('exp-structural-max', 'recall_at_5', 'chunks') f
+    join rag.sweep_points sp on sp.id = f.point_id
+    where sp.params ->> 'variant' is not null
+  ) then raise exception 'dominated or incomplete point leaked into the frontier'; end if;
+  -- query-time params live on retrieval configs
+  update rag.retrieval_configs set params = '{"k": 10, "neighbor_expansion": 1}' where id = 'test-config';
+  select params into v_params from rag.retrieval_configs where id = 'test-config';
+  if (v_params ->> 'k')::int <> 10 then raise exception 'retrieval config params not stored'; end if;
+end;
+$$;
+
 -- Telemetry -----------------------------------------------------------------
 insert into rag.ingest_runs (id, environment, versions, config)
 values ('00000000-0000-0000-0000-0000000000a1', 'benchmark', '{}', '{}');

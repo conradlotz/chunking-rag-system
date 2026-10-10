@@ -32,6 +32,11 @@ grant usage on schema rag to service_role;
 -- ===========================================================================
 -- Registry
 -- ===========================================================================
+-- A strategy is a family. Each parameter combination is a separate chunker
+-- *configuration*, registered as its own immutable component version, e.g.
+-- 'chunker/fixed.s512.o15@1.0.0' (size 512, 15% overlap). Parameters that change
+-- the chunks (index-time) need their own embedding set; parameters applied at
+-- query time (k, budget, expansion) live on retrieval_configs and need none.
 
 create table rag.strategies (
   key         text primary key,
@@ -42,15 +47,15 @@ create table rag.strategies (
 );
 
 insert into rag.strategies (key, label, family, description, sort_order) values
-  ('fixed',         'Fixed-size',      'static',       'Consecutive token windows; ignores structure',                                                    1),
-  ('fixed_overlap', 'Fixed + overlap', 'static',       'Token windows, each overlapping the previous one',                                                2),
-  ('sentence',      'Sentence',        'static',       'Whole sentences packed up to the token limit',                                                    3),
-  ('structural',    'Structure-aware', 'static',       'Follows items, sections and blocks; packs small sibling blocks, splits long blocks on sentences', 4),
-  ('semantic',      'Semantic',        'static',       'New chunk where adjacent-sentence similarity drops below a percentile breakpoint',                5),
-  ('hierarchical',  'Hierarchical',    'hierarchical', 'Small structure-aligned units, expanded through the document tree at query time',                 6);
+  ('fixed',        'Fixed-size',      'static',       'Token windows of a given size and overlap; ignores structure',                                    1),
+  ('recursive',    'Recursive',       'static',       'Splits on paragraph, then sentence, then token boundaries to a target size, with overlap',        2),
+  ('sentence',     'Sentence',        'static',       'Whole sentences packed up to a token limit',                                                      3),
+  ('structural',   'Structure-aware', 'static',       'Follows items, sections and blocks; never crosses a section; packs blocks, splits on sentences',  4),
+  ('semantic',     'Semantic',        'static',       'New chunk where adjacent-sentence similarity drops past a percentile or absolute threshold',      5),
+  ('hierarchical', 'Hierarchical',    'hierarchical', 'Small structure-aligned units, expanded through the document tree at query time',                 6);
 
 -- Every component that changes results has an explicit, immutable version.
--- id convention: '<component>/<name>@<version>', e.g. 'chunker/structural@1.0.0'.
+-- id convention: '<component>/<name>@<version>', e.g. 'chunker/structural.max480@1.0.0'.
 create table rag.component_versions (
   id         text primary key,
   component  text not null check (component in ('parser', 'normalizer', 'tokenizer', 'chunker', 'embedder',
@@ -203,7 +208,11 @@ create table rag.embedding_sets (
   embedder_version_id         text not null references rag.component_versions (id),
   keyword_analyzer_version_id text not null references rag.component_versions (id),
   status                      text not null default 'building' check (status in ('building', 'ready', 'retired')),
+  retention                   text not null default 'ephemeral' check (retention in ('ephemeral', 'retained', 'production')),
   unit_count                  int,
+  tokens_embedded             bigint,
+  index_bytes                 bigint,
+  build_seconds               numeric,
   created_at                  timestamptz not null default now(),
   unique (chunker_version_id, embedder_version_id, keyword_analyzer_version_id)
 );
@@ -237,14 +246,16 @@ create index units_tsv_idx on rag.units using gin (tsv);
 -- Retrieval configuration
 -- ===========================================================================
 
+-- Query-time configuration: params holds k, mode, parent_expansion, neighbor_expansion, ...
 create table rag.retrieval_configs (
   id                         text primary key,
   embedding_set_id           uuid not null references rag.embedding_sets (id) on delete cascade,
   retriever_version_id       text not null references rag.component_versions (id),
   context_builder_version_id text not null references rag.component_versions (id),
   budget_tokens              int not null check (budget_tokens > 0),
+  params                     jsonb not null default '{}'::jsonb,
   created_at                 timestamptz not null default now(),
-  unique (embedding_set_id, retriever_version_id, context_builder_version_id, budget_tokens)
+  unique (embedding_set_id, retriever_version_id, context_builder_version_id, budget_tokens, params)
 );
 
 -- The single configuration served live. Hosted Supabase holds the artifacts
@@ -359,6 +370,74 @@ create table rag.answer_results (
   output_tokens int,
   unique (run_id, question_id, config_key)
 );
+
+-- ===========================================================================
+-- Tuning experiments (parameter sweeps)
+-- ===========================================================================
+
+create table rag.experiments (
+  id         text primary key,
+  name       text not null,
+  strategy   text references rag.strategies (key),
+  hypothesis text,
+  axes       jsonb not null,
+  stage      text not null check (stage in ('intrinsic', 'screening', 'full')),
+  status     text not null default 'planned' check (status in ('planned', 'running', 'complete')),
+  created_at timestamptz not null default now()
+);
+
+-- One row per (configuration, stage) measured: quality on one side, cost on the other.
+create table rag.sweep_points (
+  id                     bigint generated always as identity primary key,
+  experiment_id          text not null references rag.experiments (id) on delete cascade,
+  run_id                 uuid references rag.benchmark_runs (id) on delete set null,
+  chunker_version_id     text not null references rag.component_versions (id),
+  retrieval_config_id    text references rag.retrieval_configs (id),
+  params                 jsonb not null,
+  stage                  text not null check (stage in ('intrinsic', 'screening', 'full')),
+  -- quality
+  recall_at_5            numeric,
+  mrr                    numeric,
+  answer_span_containment numeric,
+  full_evidence_rate     numeric,
+  answer_accuracy        numeric,
+  -- cost
+  chunks                 bigint,
+  tokens_embedded        bigint,
+  index_bytes            bigint,
+  context_tokens_mean    numeric,
+  retrieval_p95_ms       numeric,
+  answer_p95_ms          numeric,
+  extra                  jsonb not null default '{}'::jsonb,
+  measured_at            timestamptz not null default now()
+);
+
+create index sweep_points_experiment_idx on rag.sweep_points (experiment_id, stage);
+
+-- Pareto frontier of an experiment: points for which no other point has
+-- >= quality and <= cost with at least one strict improvement.
+-- p_quality (higher is better) and p_cost (lower is better) name sweep_points columns.
+create function rag.pareto_frontier(p_experiment text, p_quality text, p_cost text, p_stage text default null)
+returns table (point_id bigint, quality numeric, cost numeric)
+language sql
+stable
+set search_path = ''
+as $$
+  with pts as (
+    select id, (to_jsonb(sp) ->> p_quality)::numeric as q, (to_jsonb(sp) ->> p_cost)::numeric as c
+    from rag.sweep_points sp
+    where experiment_id = p_experiment and (p_stage is null or stage = p_stage)
+  ), valid as (
+    select * from pts where q is not null and c is not null
+  )
+  select a.id, a.q, a.c
+  from valid a
+  where not exists (
+    select 1 from valid b
+    where b.id <> a.id and b.q >= a.q and b.c <= a.c and (b.q > a.q or b.c < a.c)
+  )
+  order by a.c, a.q desc;
+$$;
 
 -- ===========================================================================
 -- Telemetry
