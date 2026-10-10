@@ -39,7 +39,7 @@ Primary research question:
 |---|-----------|----------------|--------|
 | M0 | Design | PLAN, ARCHITECTURE, TEST_STRATEGY reviewed | Done |
 | M1 | Schema v2 | Canonical hierarchical schema applied and smoke-tested, no data left behind | Done: hosted and local schema/API smoke tests pass; hosted test data rolled back. See EXECUTION_STATUS.md. |
-| M2 | SEC connector + canonicaliser | 100 filings canonicalised; determinism and segmentation audits pass; measured storage per filing | In progress: 103 real filings canonicalised locally, 99 in FY2024–FY2025; storage and throughput measured; parser failures and segmentation audit remain. See EXECUTION_STATUS.md. |
+| M2 | SEC connector + canonicaliser | 100 filings canonicalised; determinism and segmentation audits pass; measured storage per filing | In progress: 100 FY2024–FY2025 filings canonicalised locally; storage and throughput measured; remaining parser failures, same-version reparse, and segmentation audit remain. See EXECUTION_STATUS.md. |
 | M3 | Configurations + chunking benchmark | All 42 primary index-time configurations laid out over the first 100 filings; invariant tests green; first intrinsic benchmark including answer-span containment | |
 | M4 | Scale to ≥ 1,000 | Full corpus ingested; failures explained; storage confirmed against the plan | |
 | M5 | Embeddings + indexes | Benchmark DB fully embedded; hosted serving index; embedding parity passes | |

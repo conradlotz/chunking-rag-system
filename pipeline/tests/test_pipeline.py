@@ -72,6 +72,19 @@ def test_items_found_in_order_and_toc_skipped(doc):
     assert doc.text.count("Item 1. Business") == 1
 
 
+def test_item_headings_in_single_row_tables():
+    body = (PARA * 14).strip()
+    sections = "".join(
+        f"<table><tr><td>Item {item}.</td><td>{title}</td></tr></table><p>{body}</p>"
+        for item, title in (("1", "Business"), ("1A", "Risk Factors"),
+                            ("7", "Management Discussion"), ("7A", "Market Risk"))
+    )
+    html = f"<body><table><tr><td>Item 1.</td><td>Business</td></tr><tr><td>Item 1A.</td><td>Risks</td></tr></table>{sections}</body>"
+    parsed = parse_filing(html.encode())
+    assert [item.item for item in parsed.items] == ["1", "1A", "7", "7A"]
+    assert parsed.diagnostics["item_candidates"] == 4
+
+
 def test_tree_invariants(doc):
     nodes = doc.nodes
     assert nodes[0].node_type == "document" and nodes[0].start == 0 and nodes[0].end == len(doc.text)
