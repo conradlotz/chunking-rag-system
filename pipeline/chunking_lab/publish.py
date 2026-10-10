@@ -238,7 +238,7 @@ def main() -> None:
                         streak += 1
                         print(f"failed {company.ticker} {ref.accession_no}: {exc}", flush=True)
                         if streak >= 5:
-                            raise SystemExit(f"stopping after {streak} failures in a row; fix the cause and re-run")
+                            raise SystemExit(f"stopping after {streak} failures in a row; fix the cause and re-run") from exc
             with conn.cursor() as cur:
                 cur.execute("update rag.embedding_sets set status='ready', unit_count=(select count(*) from rag.units "
                             "where embedding_set_id=%s), tokens_embedded=%s, build_seconds=%s where id=%s",
