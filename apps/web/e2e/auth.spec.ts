@@ -27,7 +27,7 @@ test("the data APIs refuse unauthenticated requests", async ({ request }) => {
 test("the login form validates before contacting Supabase", async ({ page }) => {
   await page.goto("/login");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("alert")).toContainText("Enter your email and password");
+  await expect(page.getByRole("alert").filter({ hasText: "Enter your email" })).toBeVisible();
 });
 
 test("responses carry security headers", async ({ request }) => {

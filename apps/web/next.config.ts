@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const config: NextConfig = {
+  // The signed-out test server runs beside the fixture server and needs its own build folder.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   serverExternalPackages: ["pg"],
   poweredByHeader: false,
   async headers() {

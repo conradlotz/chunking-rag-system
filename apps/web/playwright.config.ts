@@ -28,7 +28,7 @@ export default defineConfig({
     {
       // Production-like: no fixture, so every page needs a Supabase session. The URL is unreachable on purpose:
       // the tests only exercise the signed-out paths, which need no network.
-      command: "npx next dev -p 3101 --turbopack",
+      command: "npx next dev -p 3101",
       url: "http://localhost:3101/login",
       reuseExistingServer: true,
       timeout: 120_000,
@@ -36,6 +36,7 @@ export default defineConfig({
         LAB_FIXTURE: "",
         NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:9",
         NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test_not_a_real_key",
+        NEXT_DIST_DIR: ".next-auth",
         NEXT_TELEMETRY_DISABLED: "1",
       },
     },

@@ -32,3 +32,4 @@ data/raw/
 # Build artifacts
 *.tsbuildinfo
 next-env.d.ts.bak
+.next-auth/
