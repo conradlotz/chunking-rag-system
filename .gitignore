@@ -28,3 +28,7 @@ data/raw/
 .DS_Store
 .idea/
 .vscode/
+
+# Build artifacts
+*.tsbuildinfo
+next-env.d.ts.bak

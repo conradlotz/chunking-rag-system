@@ -1,0 +1,454 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------------------------
+   Design tokens. Editorial "research desk": warm paper, ink, one calm accent.
+   Chart colours are the validated reference palette (colour-blind-safe order), stepped per theme.
+   --------------------------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+  --paper: #f5f2ea;
+  --paper-2: #eeeadf;
+  --surface: #fffdf8;
+  --surface-2: #faf7f0;
+  --ink: #181611;
+  --ink-2: #55504a;
+  --muted: #85807a;
+  --line: #e4ded1;
+  --line-2: #d4ccbb;
+  --accent: #1c5cab;
+  --accent-soft: #e4edf9;
+  --focus: #2a78d6;
+
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;
+  --s4: #eda100;
+  --s5: #e87ba4;
+  --s6: #008300;
+  --s7: #6250d6;
+  --s8: #e34948;
+  --seq-100: #cde2fb;
+  --seq-300: #6da7ec;
+  --seq-500: #256abf;
+  --seq-700: #0d366b;
+
+  --good: #0ca30c;
+  --warn: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+
+  --shadow: 0 1px 0 rgba(24, 22, 17, 0.04), 0 8px 24px -12px rgba(24, 22, 17, 0.12);
+  --radius: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --paper: #12100d;
+    --paper-2: #0d0c0a;
+    --surface: #1a1814;
+    --surface-2: #211e19;
+    --ink: #efebe2;
+    --ink-2: #b8b2a5;
+    --muted: #857f73;
+    --line: #2d2a23;
+    --line-2: #3d3930;
+    --accent: #6da7ec;
+    --accent-soft: #1b2a3f;
+    --focus: #6da7ec;
+    --s1: #3987e5;
+    --s2: #d95926;
+    --s3: #199e70;
+    --s4: #c98500;
+    --s5: #d55181;
+    --s6: #008300;
+    --s7: #9085e9;
+    --s8: #e66767;
+    --seq-100: #184f95;
+    --seq-300: #3987e5;
+    --seq-500: #6da7ec;
+    --seq-700: #cde2fb;
+    --shadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 10px 28px -14px rgba(0, 0, 0, 0.7);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #12100d;
+  --paper-2: #0d0c0a;
+  --surface: #1a1814;
+  --surface-2: #211e19;
+  --ink: #efebe2;
+  --ink-2: #b8b2a5;
+  --muted: #857f73;
+  --line: #2d2a23;
+  --line-2: #3d3930;
+  --accent: #6da7ec;
+  --accent-soft: #1b2a3f;
+  --focus: #6da7ec;
+  --s1: #3987e5;
+  --s2: #d95926;
+  --s3: #199e70;
+  --s4: #c98500;
+  --s5: #d55181;
+  --s6: #008300;
+  --s7: #9085e9;
+  --s8: #e66767;
+  --seq-100: #184f95;
+  --seq-300: #3987e5;
+  --seq-500: #6da7ec;
+  --seq-700: #cde2fb;
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 10px 28px -14px rgba(0, 0, 0, 0.7);
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+html {
+  background: var(--paper);
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  .display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+    line-height: 1.08;
+    font-weight: 500;
+  }
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .card-pad {
+    padding: 20px 22px;
+  }
+  .hairline {
+    border-top: 1px solid var(--line);
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--line-2);
+    background: var(--surface-2);
+    color: var(--ink-2);
+    font-size: 12px;
+    line-height: 20px;
+    white-space: nowrap;
+  }
+  .chip-solid {
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 38px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: 1px solid var(--line-2);
+    background: var(--surface);
+    color: var(--ink);
+    font-weight: 550;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  }
+  .btn:hover {
+    background: var(--surface-2);
+    border-color: var(--ink-2);
+  }
+  .btn:active {
+    transform: translateY(1px);
+  }
+  .btn-primary {
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+  }
+  .btn-primary:hover {
+    background: color-mix(in srgb, var(--ink) 86%, var(--paper));
+    border-color: var(--ink);
+  }
+  .btn[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    padding: 9px 12px;
+    color: var(--ink);
+    font: inherit;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .input::placeholder {
+    color: var(--muted);
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--focus);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent);
+  }
+  .seg {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    border-radius: 11px;
+    background: var(--paper-2);
+    border: 1px solid var(--line);
+  }
+  .seg button {
+    height: 30px;
+    padding: 0 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 550;
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+  .seg button:hover {
+    color: var(--ink);
+  }
+  .seg button[aria-pressed="true"],
+  .seg button[aria-selected="true"] {
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--line);
+  }
+  .label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+    letter-spacing: 0.01em;
+  }
+  table.data {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  table.data th {
+    text-align: left;
+    padding: 9px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  table.data td {
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+  }
+  table.data tr:last-child td {
+    border-bottom: none;
+  }
+  table.data tbody tr:hover td {
+    background: var(--surface-2);
+  }
+  table.data .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .prose-lab p {
+    margin: 0 0 1em;
+    color: var(--ink-2);
+    max-width: 68ch;
+  }
+  .prose-lab h2 {
+    font-family: var(--font-display);
+    font-size: 26px;
+    letter-spacing: -0.015em;
+    font-weight: 500;
+    margin: 2.2em 0 0.5em;
+    color: var(--ink);
+  }
+  .prose-lab h3 {
+    font-size: 15px;
+    font-weight: 650;
+    margin: 1.6em 0 0.4em;
+  }
+  .prose-lab code {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    background: var(--paper-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 5px;
+  }
+  .prose-lab ul {
+    margin: 0 0 1em 1.1em;
+    list-style: disc;
+    color: var(--ink-2);
+    max-width: 68ch;
+  }
+  .prose-lab li {
+    margin: 0.3em 0;
+  }
+}
+
+/* Passage rendering (Explorer and Retrieval Lab) */
+.passage {
+  font-family: var(--font-display);
+  font-size: 15.5px;
+  line-height: 1.7;
+  color: var(--ink);
+}
+mark.hit {
+  background: color-mix(in srgb, var(--s1) 20%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--s1) 55%, transparent);
+}
+mark.term {
+  background: color-mix(in srgb, var(--s4) 32%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.rise {
+  animation: rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rise {
+    animation: none;
+  }
+  * {
+    transition: none !important;
+  }
+}
+
+/* Thin scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+/* Explorer: chunk boundaries drawn over the canonical text */
+.cb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 15px;
+  padding: 0 4px;
+  margin: 0 3px 0 1px;
+  border-radius: 8px;
+  background: var(--c);
+  color: #fff;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+  font: 600 9.5px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  vertical-align: 2px;
+  cursor: help;
+  user-select: none;
+  font-family: var(--font-mono);
+}
+.cb[data-side="B"] {
+  background: transparent;
+  color: var(--c);
+  text-shadow: none;
+  box-shadow: inset 0 0 0 1.5px var(--c);
+}
+.tint {
+  border-radius: 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.tint-even {
+  background: color-mix(in srgb, var(--c) 10%, transparent);
+}
+.tint-odd {
+  background: color-mix(in srgb, var(--c) 22%, transparent);
+}
+.tint-overlap {
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--c) 34%, transparent) 0 4px,
+    color-mix(in srgb, var(--c) 14%, transparent) 4px 8px
+  );
+}
+.gold {
+  box-shadow: inset 0 -2px 0 var(--s2);
+}
+.hlspan {
+  outline: 2px solid color-mix(in srgb, var(--s4) 85%, transparent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.tablebox {
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-x: auto;
+}

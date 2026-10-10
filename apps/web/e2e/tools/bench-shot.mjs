@@ -1,0 +1,14 @@
+import { chromium } from "@playwright/test";
+const [S, theme = "light", q = "recall_at_5"] = process.argv.slice(2);
+const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium", args: ["--no-sandbox"] });
+const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, colorScheme: theme });
+await page.addInitScript((t) => { try { localStorage.setItem("lab-theme", t); } catch {} }, theme);
+const errors = [];
+page.on("pageerror", (e) => errors.push(String(e)));
+page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+await page.goto("http://localhost:3100/benchmarks", { waitUntil: "networkidle" });
+await page.selectOption("#qm", q);
+await page.waitForTimeout(500);
+await page.screenshot({ path: `${S}/bench-${theme}.png`, fullPage: true });
+console.log("curve:", await page.locator('[data-testid="param-curve"]').count(), "pareto:", await page.locator('[data-testid="pareto"]').count(), "rows:", await page.locator('[data-testid="sweep-table"] tbody tr').count(), "| errors:", errors.length ? errors.join(" || ") : "none");
+await browser.close();

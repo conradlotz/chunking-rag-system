@@ -789,7 +789,8 @@ $$;
 -- ===========================================================================
 
 create materialized view rag.corpus_stats as
-select (select count(*) from rag.filings)::int                               as filings,
+select now()                                                                   as refreshed_at,
+       (select count(*) from rag.filings)::int                               as filings,
        (select count(distinct cik) from rag.filings)::int                    as companies,
        (select min(fiscal_year) from rag.filings)                            as min_fiscal_year,
        (select max(fiscal_year) from rag.filings)                            as max_fiscal_year,

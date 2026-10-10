@@ -1,0 +1,16 @@
+import { chromium } from "@playwright/test";
+const [S, DOC, theme = "light"] = process.argv.slice(2);
+const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium", args: ["--no-sandbox"] });
+const page = await browser.newPage({ viewport: { width: 1500, height: 1000 }, colorScheme: theme });
+await page.addInitScript((t) => { try { localStorage.setItem("lab-theme", t); } catch {} }, theme);
+const errors = [];
+page.on("pageerror", (e) => errors.push(String(e)));
+page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+await page.goto(`http://localhost:3100/explorer/${DOC}`, { waitUntil: "networkidle" });
+await page.getByRole("tab", { name: /Item 1A/ }).click();
+await page.selectOption("#lb", { label: "fixed.s128.o20 · 23 chunks" });
+await page.waitForSelector(".cb");
+await page.waitForTimeout(800);
+await page.screenshot({ path: `${S}/explorer-${theme}.png`, fullPage: false });
+console.log("badges:", await page.locator(".cb").count(), "| gold panel:", await page.locator('[data-testid="gold-panel"]').count(), "| errors:", errors.length ? errors.join(" || ") : "none");
+await browser.close();
