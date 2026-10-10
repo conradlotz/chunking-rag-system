@@ -35,7 +35,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       <PageHeader
         eyebrow="Natural-language search"
         title="Ask the filings a question"
-        lead="Type a question in plain English. The answer path is retrieval over chunked 10-K filings, and this page shows exactly how the context is built: which units were ranked, how keyword and vector results were fused, and where every token of the budget went."
+        lead="Plain English over real SEC 10-K filings. Each result is a source passage, with the chunk it came from."
       />
       <RetrievalLab configs={configs} initial={initial} />
     </>

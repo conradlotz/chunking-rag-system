@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
+async function openOptions(page: import("@playwright/test").Page) {
+  const d = page.locator("details", { hasText: "Options:" });
+  if ((await d.getAttribute("open")) === null) await d.locator("summary").click();
+}
+
 // Runs against the development fixture (pipeline/tests/fixtures/load_dev_fixture.py).
 
 function collectErrors(page: Page) {
@@ -42,6 +47,7 @@ test("search returns ranked, highlighted passages with fusion ranks and timings"
 
 test("filters restrict results to the chosen fiscal year", async ({ page }) => {
   await page.goto("/search");
+  await openOptions(page);
   await page.getByRole("group", { name: "Fiscal years" }).getByRole("button", { name: "2025" }).click();
   await search(page, "gross margin freight costs");
   const cards = page.getByTestId("hit");
@@ -52,6 +58,7 @@ test("filters restrict results to the chosen fiscal year", async ({ page }) => {
 
 test("keyword mode finds passages by their words", async ({ page }) => {
   await page.goto("/search");
+  await openOptions(page);
   await page.getByRole("group", { name: "Retrieval mode" }).getByRole("button", { name: "Keyword" }).click();
   await search(page, "cybersecurity incident ransomware");
   await expect(page.getByTestId("hit").first()).toContainText(/cyber/i);
@@ -59,6 +66,7 @@ test("keyword mode finds passages by their words", async ({ page }) => {
 
 test("context expansion adds neighbouring blocks and never exceeds the budget", async ({ page }) => {
   await page.goto("/search");
+  await openOptions(page);
   await page.getByRole("group", { name: "Token budget" }).getByRole("button", { name: "2K" }).click();
   await search(page, "How do tariffs affect gross margin?");
   await page.getByRole("tab", { name: /Context/ }).click();
@@ -72,7 +80,9 @@ test("context expansion adds neighbouring blocks and never exceeds the budget", 
   expect(staticUse.used).toBeLessThanOrEqual(staticUse.budget);
 
   await page.getByRole("tab", { name: /Ranked units/ }).click();
+  await openOptions(page);
   await page.getByRole("button", { name: "Expand" }).click();
+  await openOptions(page);
   await page.getByRole("group", { name: "Neighbour expansion" }).getByRole("button", { name: "1" }).click();
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await page.waitForSelector('[data-testid="hit"]');
