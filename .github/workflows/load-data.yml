@@ -3,12 +3,22 @@ name: Load real SEC filings
 # Runs the ingest -> chunk -> embed -> load pipeline on a GitHub runner, where sec.gov and
 # huggingface.co are reachable. Writes real 10-K filings and one embedded chunk layout into the
 # database named by the SUPABASE_DB_URL secret. Nothing is committed; the raw SEC cache is discarded.
+#
+# Two ways to start it:
+#   * Actions tab -> Run workflow (manual inputs below), or
+#   * push a change to .github/load-requests/*.json on main, e.g.
+#       {"limit": 107, "max_new": 0, "strategy": "structural", "size": 256, "make_production": true}
+#     The run uses the pushed commit, so it always runs the latest code.
+# Re-running an old run re-uses that run's (old) commit; start a new run instead.
 on:
   workflow_dispatch:
     inputs:
       limit:
-        description: "Filings to load (start with 20-50)"
+        description: "Filings to embed in this run"
         default: "20"
+      max_new:
+        description: "Most new filings to fetch from the SEC (0 = only embed what is already loaded)"
+        default: "0"
       strategy:
         description: "Chunking strategy"
         type: choice
@@ -21,20 +31,46 @@ on:
         description: "Make this the live search configuration"
         type: boolean
         default: true
+  push:
+    branches: [main]
+    paths: [".github/load-requests/*.json"]
 
 concurrency: load-data
 
 jobs:
   load:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: astral-sh/setup-uv@v5
       - uses: actions/cache@v4
         with:
           path: data/models
           key: gte-small-model-v1
+      - name: Resolve parameters
+        id: params
+        run: |
+          set -eo pipefail
+          if [ "${{ github.event_name }}" = "push" ]; then
+            FILE=$(git diff --name-only HEAD~1 HEAD -- '.github/load-requests/*.json' | tail -n 1)
+            test -n "$FILE" || { echo "::error::No load request file changed"; exit 1; }
+            echo "Load request: $FILE"; cat "$FILE"
+            get() { jq -r --arg k "$1" --arg d "$2" 'if has($k) then .[$k] else $d end | tostring' "$FILE"; }
+            LIMIT=$(get limit 20); MAX_NEW=$(get max_new 0); STRATEGY=$(get strategy structural)
+            SIZE=$(get size 256); PROD=$(get make_production true)
+          else
+            LIMIT="${{ inputs.limit }}"; MAX_NEW="${{ inputs.max_new }}"; STRATEGY="${{ inputs.strategy }}"
+            SIZE="${{ inputs.size }}"; PROD="${{ inputs.make_production }}"
+          fi
+          for v in "$LIMIT" "$MAX_NEW" "$SIZE"; do
+            [[ "$v" =~ ^[0-9]+$ ]] || { echo "::error::limit, max_new and size must be whole numbers"; exit 1; }
+          done
+          [[ "$STRATEGY" =~ ^(structural|hierarchical|fixed|recursive|sentence)$ ]] || { echo "::error::unknown strategy"; exit 1; }
+          { echo "limit=$LIMIT"; echo "max_new=$MAX_NEW"; echo "strategy=$STRATEGY"; echo "size=$SIZE"; echo "prod=$PROD"; } >> "$GITHUB_OUTPUT"
+          echo "limit=$LIMIT max_new=$MAX_NEW strategy=$STRATEGY size=$SIZE make_production=$PROD commit=$GITHUB_SHA"
       - name: Install
         working-directory: pipeline
         run: uv sync --frozen || uv sync
@@ -56,15 +92,17 @@ jobs:
         working-directory: pipeline
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          DB: ${{ secrets.SUPABASE_DB_URL }}
           CHUNKING_LAB_RAW_DIR: ${{ runner.temp }}/raw
         run: |
           set -eo pipefail
           FLAGS=""
-          if [ "${{ inputs.make_production }}" = "true" ]; then FLAGS="--make-production"; fi
+          if [ "${{ steps.params.outputs.prod }}" = "true" ]; then FLAGS="--make-production"; fi
           uv run python -m chunking_lab.publish \
-            --dsn "${{ secrets.SUPABASE_DB_URL }}" \
-            --limit "${{ inputs.limit }}" --strategy "${{ inputs.strategy }}" --size "${{ inputs.size }}" \
-            --models ../data/models/gte-small --mode sec $FLAGS | tee "$RUNNER_TEMP/publish.log"
+            --dsn "$DB" \
+            --limit "${{ steps.params.outputs.limit }}" --max-new "${{ steps.params.outputs.max_new }}" \
+            --strategy "${{ steps.params.outputs.strategy }}" --size "${{ steps.params.outputs.size }}" \
+            --max-db-mb 400 --models ../data/models/gte-small --mode sec $FLAGS | tee "$RUNNER_TEMP/publish.log"
       - name: Summary
         if: always()
         run: |

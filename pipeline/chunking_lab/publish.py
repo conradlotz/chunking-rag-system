@@ -150,6 +150,10 @@ def main() -> None:
     ap.add_argument("--models", type=Path, default=Path("data/models/gte-small"))
     ap.add_argument("--mode", choices=("cache-first", "sec", "refresh", "cache-only"), default="cache-first")
     ap.add_argument("--tickers", nargs="*", help="restrict to these tickers (default: S&P 500 order)")
+    ap.add_argument("--max-new", type=int, default=None,
+                    help="most filings to fetch from the SEC in this run (default: --limit)")
+    ap.add_argument("--max-db-mb", type=int, default=400,
+                    help="stop before the target database grows past this size (free plan is 500 MB)")
     ap.add_argument("--environment", choices=("benchmark", "hosted"), default="hosted")
     ap.add_argument("--make-production", action="store_true", help="set as the live retrieval configuration")
     args = ap.parse_args()
@@ -166,7 +170,7 @@ def main() -> None:
     sec = SecClient()
     source = FilingSource(sec, RawCache(), args.mode)
     started = time.perf_counter()
-    loaded = failed = units = embedded_tokens = streak = 0
+    loaded = failed = units = embedded_tokens = streak = fetched = 0
     embed_seconds = 0.0
 
     with psycopg.connect(args.dsn, autocommit=True) as conn:
@@ -193,13 +197,47 @@ def main() -> None:
                          "production" if args.make_production else "retained"))
             set_id = cur.fetchone()[0]
 
-        companies = sec.sp500_companies()
-        if args.tickers:
-            wanted = {t.upper() for t in args.tickers}
-            companies = [c for c in companies if c.ticker.upper() in wanted]
+        def embed_one(ticker: str, accession_no: str) -> None:
+            nonlocal loaded, failed, streak, units, embedded_tokens, embed_seconds
+            try:
+                with conn.transaction(), conn.cursor() as cur:
+                    n, tk, secs = _embed_filing(cur, embedder, chunker, tokenizer, set_id, accession_no)
+            except Exception as exc:
+                failed += 1
+                streak += 1
+                print(f"failed {ticker} {accession_no}: {exc}", flush=True)
+                if streak >= 5:
+                    raise SystemExit(f"stopping after {streak} failures in a row; fix and re-run") from exc
+                return
+            units += n
+            embedded_tokens += tk
+            embed_seconds += secs
+            loaded += 1
+            streak = 0
+            print(f"{loaded}/{args.limit} {ticker} {accession_no} units={n} tokens={tk} embed={secs:.1f}s", flush=True)
+
         try:
-            for company in companies:
+            # 1. Filings already in the database that this configuration has not embedded yet. No SEC traffic.
+            with conn.cursor() as cur:
+                cur.execute("select f.accession_no, coalesce(c.ticker, f.cik) from rag.filings f "
+                            "join rag.companies c on c.cik=f.cik "
+                            "join rag.canonical_documents d on d.filing_id=f.id "
+                            "where not exists (select 1 from rag.units u where u.embedding_set_id=%s "
+                            "and u.canonical_document_id=d.id) order by c.ticker, f.fiscal_year desc", (set_id,))
+                pending = cur.fetchall()
+            for accession_no, ticker in pending:
                 if loaded >= args.limit:
+                    break
+                embed_one(ticker, accession_no)
+
+            # 2. New filings from the SEC, at most --max-new, never past the database size limit.
+            cap = args.max_new if args.max_new is not None else args.limit
+            companies = sec.sp500_companies() if loaded < args.limit and cap > 0 else []
+            if args.tickers:
+                wanted = {t.upper() for t in args.tickers}
+                companies = [c for c in companies if c.ticker.upper() in wanted]
+            for company in companies:
+                if loaded >= args.limit or fetched >= cap:
                     break
                 try:
                     company, refs = sec.ten_k_filings(company, latest=2)
@@ -207,38 +245,28 @@ def main() -> None:
                     print(f"discovery failed {company.ticker}: {exc}", flush=True)
                     continue
                 for ref in refs:
-                    if loaded >= args.limit:
+                    if loaded >= args.limit or fetched >= cap:
                         break
                     with conn.cursor() as cur:
                         cur.execute("select 1 from rag.filings where accession_no=%s", (ref.accession_no,))
-                        have = cur.fetchone() is not None
+                        if cur.fetchone():
+                            continue  # handled in step 1
+                        cur.execute("select pg_database_size(current_database())")
+                        if cur.fetchone()[0] > args.max_db_mb * 1024 * 1024:
+                            raise SystemExit(f"database is over {args.max_db_mb} MB; not loading more filings")
+                    fetched += 1
                     try:
-                        if not have:
-                            _load_one(conn, run_id, company, ref, source, tokenizer, set(args.years))
-                        with conn.transaction(), conn.cursor() as cur:
-                            cur.execute("select 1 from rag.units u join rag.canonical_documents d on d.id="
-                                        "u.canonical_document_id join rag.filings f on f.id=d.filing_id "
-                                        "where f.accession_no=%s and u.embedding_set_id=%s limit 1",
-                                        (ref.accession_no, set_id))
-                            if cur.fetchone():
-                                loaded += 1
-                                continue
-                            n, tk, secs = _embed_filing(cur, embedder, chunker, tokenizer, set_id, ref.accession_no)
-                        units += n
-                        embedded_tokens += tk
-                        embed_seconds += secs
-                        loaded += 1
-                        streak = 0
-                        print(f"{loaded}/{args.limit} {company.ticker} {ref.accession_no} units={n} "
-                              f"tokens={tk} embed={secs:.1f}s", flush=True)
+                        _load_one(conn, run_id, company, ref, source, tokenizer, set(args.years))
                     except OutOfScope:
-                        pass
+                        continue
                     except Exception as exc:
                         failed += 1
                         streak += 1
                         print(f"failed {company.ticker} {ref.accession_no}: {exc}", flush=True)
                         if streak >= 5:
                             raise SystemExit(f"stopping after {streak} failures in a row; fix and re-run") from exc
+                        continue
+                    embed_one(company.ticker, ref.accession_no)
             with conn.cursor() as cur:
                 cur.execute("update rag.embedding_sets set status='ready', unit_count=(select count(*) from rag.units "
                             "where embedding_set_id=%s), tokens_embedded=%s, build_seconds=%s where id=%s",
