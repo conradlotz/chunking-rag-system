@@ -166,7 +166,7 @@ def main() -> None:
     sec = SecClient()
     source = FilingSource(sec, RawCache(), args.mode)
     started = time.perf_counter()
-    loaded = failed = units = embedded_tokens = 0
+    loaded = failed = units = embedded_tokens = streak = 0
     embed_seconds = 0.0
 
     with psycopg.connect(args.dsn, autocommit=True) as conn:
@@ -228,13 +228,17 @@ def main() -> None:
                         embedded_tokens += tk
                         embed_seconds += secs
                         loaded += 1
+                        streak = 0
                         print(f"{loaded}/{args.limit} {company.ticker} {ref.accession_no} units={n} "
                               f"tokens={tk} embed={secs:.1f}s", flush=True)
                     except OutOfScope:
                         pass
                     except Exception as exc:
                         failed += 1
+                        streak += 1
                         print(f"failed {company.ticker} {ref.accession_no}: {exc}", flush=True)
+                        if streak >= 5:
+                            raise SystemExit(f"stopping after {streak} failures in a row; fix the cause and re-run")
             with conn.cursor() as cur:
                 cur.execute("update rag.embedding_sets set status='ready', unit_count=(select count(*) from rag.units "
                             "where embedding_set_id=%s), tokens_embedded=%s, build_seconds=%s where id=%s",
