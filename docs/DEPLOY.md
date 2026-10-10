@@ -71,3 +71,18 @@ cd apps/web && npm install && npm run test:unit
 LAB_FIXTURE=1 LAB_FIXTURE_DATABASE_URL=postgresql://postgres@127.0.0.1:54329/bench npx next dev
 npx playwright test                               # browser tests (fixture and signed-out)
 ```
+
+## Loading real filings (GitHub Actions)
+
+The pipeline needs `sec.gov` and `huggingface.co`, which GitHub runners can reach. In the repository go to
+Settings, Secrets and variables, Actions, and add two secrets:
+
+| Secret | Value |
+|--------|-------|
+| `SEC_USER_AGENT` | Your name and contact email (required by the SEC) |
+| `SUPABASE_DB_URL` | Supabase, Project Settings, Database, Connection string, **Session pooler** (runners are IPv4 only) |
+
+Then Actions, "Load real SEC filings", Run workflow. Start with 20 filings. It downloads the `gte-small`
+model, loads the filings, chunks them, embeds each chunk and writes one configuration to Supabase; the run
+summary shows throughput and counts. Re-running adds more filings and skips ones already loaded.
+Fixture data is refused.

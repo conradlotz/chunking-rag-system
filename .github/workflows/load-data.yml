@@ -1,0 +1,63 @@
+name: Load real SEC filings
+
+# Runs the ingest -> chunk -> embed -> load pipeline on a GitHub runner, where sec.gov and
+# huggingface.co are reachable. Writes real 10-K filings and one embedded chunk layout into the
+# database named by the SUPABASE_DB_URL secret. Nothing is committed; the raw SEC cache is discarded.
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Filings to load (start with 20-50)"
+        default: "20"
+      strategy:
+        description: "Chunking strategy"
+        type: choice
+        default: structural
+        options: [structural, hierarchical, fixed, recursive, sentence]
+      size:
+        description: "Chunk size in tokens (128, 256, 384 or 480)"
+        default: "256"
+      make_production:
+        description: "Make this the live search configuration"
+        type: boolean
+        default: true
+
+concurrency: load-data
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/cache@v4
+        with:
+          path: data/models
+          key: gte-small-model-v1
+      - name: Install
+        working-directory: pipeline
+        run: uv sync --frozen || uv sync
+      - name: Check secrets
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          DB: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          test -n "$SEC_USER_AGENT" || { echo "::error::Add the SEC_USER_AGENT secret (name and email)"; exit 1; }
+          test -n "$DB" || { echo "::error::Add the SUPABASE_DB_URL secret (Supabase session pooler string)"; exit 1; }
+      - name: Load filings, chunk, embed
+        working-directory: pipeline
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          CHUNKING_LAB_RAW_DIR: ${{ runner.temp }}/raw
+        run: |
+          FLAGS=""
+          if [ "${{ inputs.make_production }}" = "true" ]; then FLAGS="--make-production"; fi
+          uv run python -m chunking_lab.publish \
+            --dsn "${{ secrets.SUPABASE_DB_URL }}" \
+            --limit "${{ inputs.limit }}" --strategy "${{ inputs.strategy }}" --size "${{ inputs.size }}" \
+            --models ../data/models/gte-small --mode sec $FLAGS | tee "$RUNNER_TEMP/publish.log"
+      - name: Summary
+        if: always()
+        run: |
+          { echo '### Load result'; echo '```'; tail -n 25 "$RUNNER_TEMP/publish.log" 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
