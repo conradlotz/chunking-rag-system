@@ -1,12 +1,26 @@
--- Chunking Lab v2: canonical hierarchical representation of SEC filings.
+-- Chunking Lab v2: layered, versioned schema for SEC filings.
 --
--- Replaces the v1 rag schema (which held no data). Source filings stay at the
--- SEC; this schema stores the canonical text and document tree derived from
--- each filing, chunking strategies as span layouts over that text, search
--- units, question sets and benchmark results.
+-- Replaces the v1 rag schema (which held no data). Layers are kept separate:
 --
--- Isolated in the `rag` schema, not exposed through the Data API; accessed only
--- by server-side code.
+--   registry     component_versions       every parser / normaliser / tokenizer /
+--                                          chunker / embedder / analyzer /
+--                                          retriever / context-builder version
+--   source       companies, filings       where each filing lives at the SEC
+--                                          (source documents are never stored)
+--   canonical    canonical_documents,     derived text + document tree, per
+--                nodes                     (parser, normaliser) version
+--   boundaries   chunk_layouts            chunk spans over a canonical document,
+--                                          per chunker version (no text copies)
+--   artifacts    embedding_sets, units    embeddings + keyword vectors derived
+--                                          from one layout, per embedder version
+--   retrieval    retrieval_configs,       a complete, versioned retrieval
+--                production_config         configuration; the one that is live
+--   evaluation   questions, gold_spans, benchmark_runs, *_results
+--   telemetry    ingest_runs, ingest_events, storage_snapshots, ingest_jobs
+--
+-- The same migration runs on the benchmark database (all configurations) and
+-- on hosted Supabase (only the production configuration's artifacts).
+-- Isolated in the `rag` schema, not exposed through the Data API.
 
 create extension if not exists vector with schema extensions;
 
@@ -15,9 +29,59 @@ create schema rag;
 revoke all on schema rag from public, anon, authenticated;
 grant usage on schema rag to service_role;
 
--- ---------------------------------------------------------------------------
--- Corpus: companies, filings, canonical document tree
--- ---------------------------------------------------------------------------
+-- ===========================================================================
+-- Registry
+-- ===========================================================================
+
+create table rag.strategies (
+  key         text primary key,
+  label       text not null,
+  family      text not null check (family in ('static', 'hierarchical')),
+  description text not null,
+  sort_order  int not null default 0
+);
+
+insert into rag.strategies (key, label, family, description, sort_order) values
+  ('fixed',         'Fixed-size',      'static',       'Consecutive token windows; ignores structure',                                                    1),
+  ('fixed_overlap', 'Fixed + overlap', 'static',       'Token windows, each overlapping the previous one',                                                2),
+  ('sentence',      'Sentence',        'static',       'Whole sentences packed up to the token limit',                                                    3),
+  ('structural',    'Structure-aware', 'static',       'Follows items, sections and blocks; packs small sibling blocks, splits long blocks on sentences', 4),
+  ('semantic',      'Semantic',        'static',       'New chunk where adjacent-sentence similarity drops below a percentile breakpoint',                5),
+  ('hierarchical',  'Hierarchical',    'hierarchical', 'Small structure-aligned units, expanded through the document tree at query time',                 6);
+
+-- Every component that changes results has an explicit, immutable version.
+-- id convention: '<component>/<name>@<version>', e.g. 'chunker/structural@1.0.0'.
+create table rag.component_versions (
+  id         text primary key,
+  component  text not null check (component in ('parser', 'normalizer', 'tokenizer', 'chunker', 'embedder',
+                                                'keyword_analyzer', 'retriever', 'context_builder')),
+  name       text not null,
+  version    text not null,
+  strategy   text references rag.strategies (key),
+  params     jsonb not null default '{}'::jsonb,
+  code_sha   text,
+  created_at timestamptz not null default now(),
+  unique (component, name, version),
+  check (id = component || '/' || name || '@' || version),
+  check ((component = 'chunker') = (strategy is not null))
+);
+
+create function rag.forbid_version_update() returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  raise exception 'component version % is immutable; register a new version instead', old.id;
+end;
+$$;
+
+create trigger component_versions_immutable
+  before update on rag.component_versions
+  for each row execute function rag.forbid_version_update();
+
+-- ===========================================================================
+-- Source layer (references to remote SEC documents)
+-- ===========================================================================
 
 create table rag.companies (
   cik             text primary key check (cik ~ '^\d{10}$'),
@@ -38,117 +102,164 @@ create table rag.filings (
   fiscal_year      int not null,
   period_of_report date not null,
   filed_at         date not null,
+  primary_document text not null,
   source_url       text not null check (source_url like 'https://www.sec.gov/%'),
   source_sha256    text not null,
   source_bytes     int not null check (source_bytes > 0),
-  parser_version   text not null,
-  canonical_text   text not null,
-  canonical_sha256 text not null,
-  char_count       int generated always as (char_length(canonical_text)) stored,
-  token_count      int not null check (token_count > 0),
-  items            text[] not null,
-  ingested_at      timestamptz not null default now(),
-  unique (cik, form, fiscal_year)
+  fetched_at       timestamptz not null,
+  unique (cik, form, period_of_report)
 );
 
 create index filings_fiscal_year_idx on rag.filings (fiscal_year);
 
--- Document tree. Leaf blocks carry sentence boundaries as an offset array
--- instead of one row per sentence.
+-- ===========================================================================
+-- Canonical layer (derived structure, versioned by parser + normaliser)
+-- ===========================================================================
+
+create table rag.canonical_documents (
+  id                    uuid primary key default gen_random_uuid(),
+  filing_id             uuid not null references rag.filings (id) on delete cascade,
+  parser_version_id     text not null references rag.component_versions (id),
+  normalizer_version_id text not null references rag.component_versions (id),
+  tokenizer_version_id  text not null references rag.component_versions (id),
+  text                  text not null,
+  text_sha256           text not null,
+  char_count            int generated always as (char_length(text)) stored,
+  token_count           int not null check (token_count > 0),
+  items                 text[] not null,
+  created_at            timestamptz not null default now(),
+  unique (filing_id, parser_version_id, normalizer_version_id)
+);
+
+-- Document tree. Leaf blocks carry sentence boundaries as an offset array.
 create table rag.nodes (
-  id              bigint generated always as identity primary key,
-  filing_id       uuid not null references rag.filings (id) on delete cascade,
-  parent_id       bigint references rag.nodes (id) on delete cascade,
-  ordinal         int not null,
-  depth           smallint not null check (depth >= 0),
-  node_type       text not null check (node_type in ('document', 'item', 'section', 'paragraph', 'table', 'list')),
-  item            text,
-  heading         text,
-  heading_path    text[] not null default '{}',
-  start_char      int not null check (start_char >= 0),
-  end_char        int not null,
-  token_count     int not null check (token_count >= 0),
-  sentence_starts int[],
+  id                    bigint generated always as identity primary key,
+  canonical_document_id uuid not null references rag.canonical_documents (id) on delete cascade,
+  parent_id             bigint references rag.nodes (id) on delete cascade,
+  ordinal               int not null,
+  depth                 smallint not null check (depth >= 0),
+  node_type             text not null check (node_type in ('document', 'item', 'section', 'paragraph', 'table', 'list')),
+  item                  text,
+  heading               text,
+  heading_path          text[] not null default '{}',
+  start_char            int not null check (start_char >= 0),
+  end_char              int not null,
+  token_count           int not null check (token_count >= 0),
+  sentence_starts       int[],
   check (end_char > start_char),
   check ((node_type = 'document') = (parent_id is null)),
   check (node_type in ('paragraph', 'table', 'list') or sentence_starts is null),
-  unique (filing_id, ordinal)
+  unique (canonical_document_id, ordinal)
 );
 
 create index nodes_parent_idx on rag.nodes (parent_id);
-create index nodes_filing_start_idx on rag.nodes (filing_id, start_char);
+create index nodes_doc_start_idx on rag.nodes (canonical_document_id, start_char);
 
--- ---------------------------------------------------------------------------
--- Chunking strategies, layouts and search units
--- ---------------------------------------------------------------------------
+-- Offsets are the contract for every later layer: canonical text never changes.
+create function rag.forbid_canonical_text_update() returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.text is distinct from old.text then
+    raise exception 'canonical document % is immutable; produce a new parser or normaliser version instead', old.id;
+  end if;
+  return new;
+end;
+$$;
 
-create table rag.strategies (
-  key         text primary key,
-  label       text not null,
-  family      text not null check (family in ('static', 'hierarchical')),
-  description text not null,
-  params      jsonb not null default '{}'::jsonb,
-  version     text not null,
-  serving     boolean not null default false,
-  sort_order  int not null default 0
-);
+create trigger canonical_documents_immutable
+  before update of text on rag.canonical_documents
+  for each row execute function rag.forbid_canonical_text_update();
 
-insert into rag.strategies (key, label, family, description, params, version, serving, sort_order) values
-  ('fixed',         'Fixed-size',      'static',       'Consecutive 480-token windows; ignores structure',                                                       '{"size": 480}',                                          'v1', false, 1),
-  ('fixed_overlap', 'Fixed + overlap', 'static',       '480-token windows, each overlapping the previous by 120 tokens',                                         '{"size": 480, "overlap": 120}',                          'v1', false, 2),
-  ('sentence',      'Sentence',        'static',       'Whole sentences packed up to 480 tokens',                                                                '{"max": 480}',                                           'v1', false, 3),
-  ('structural',    'Structure-aware', 'static',       'Follows items, sections and blocks; packs small sibling blocks, splits long blocks on sentences',       '{"min": 64, "max": 480}',                                'v1', false, 4),
-  ('semantic',      'Semantic',        'static',       'New chunk where adjacent-sentence similarity drops below the 90th-percentile breakpoint',               '{"min": 64, "max": 480, "breakpoint_percentile": 90}',   'v1', false, 5),
-  ('hierarchical',  'Hierarchical',    'hierarchical', 'Small structure-aligned units, expanded through the document tree within a token budget at query time', '{"unit_target": 256, "unit_max": 480}',                  'v1', true,  6);
+-- ===========================================================================
+-- Boundary layer (chunk spans, versioned by chunker)
+-- ===========================================================================
 
--- One row per filing x strategy: the strategy's chunk boundaries as offset
--- arrays into the canonical text. Text is never copied.
 create table rag.chunk_layouts (
-  filing_id        uuid not null references rag.filings (id) on delete cascade,
-  strategy         text not null references rag.strategies (key),
-  strategy_version text not null,
-  starts           int[] not null,
-  ends             int[] not null,
-  token_counts     int[] not null,
-  chunk_count      int generated always as (cardinality(starts)) stored,
-  total_tokens     int not null,
-  created_at       timestamptz not null default now(),
-  primary key (filing_id, strategy),
-  check (cardinality(starts) = cardinality(ends) and cardinality(ends) = cardinality(token_counts)),
-  check (cardinality(starts) > 0)
+  canonical_document_id uuid not null references rag.canonical_documents (id) on delete cascade,
+  chunker_version_id    text not null references rag.component_versions (id),
+  starts                int[] not null,
+  ends                  int[] not null,
+  token_counts          int[] not null,
+  node_ids              bigint[] not null,
+  chunk_count           int generated always as (cardinality(starts)) stored,
+  total_tokens          int not null,
+  created_at            timestamptz not null default now(),
+  primary key (canonical_document_id, chunker_version_id),
+  check (cardinality(starts) > 0),
+  check (cardinality(starts) = cardinality(ends)
+         and cardinality(ends) = cardinality(token_counts)
+         and cardinality(token_counts) = cardinality(node_ids))
 );
 
--- Search units: the spans that are embedded and keyword-indexed. In the
--- benchmark database every strategy has units; on the hosted database only
--- strategies flagged `serving` carry embeddings.
-create table rag.chunks (
-  id          bigint generated always as identity primary key,
-  filing_id   uuid not null references rag.filings (id) on delete cascade,
-  strategy    text not null references rag.strategies (key),
-  ordinal     int not null,
-  start_char  int not null check (start_char >= 0),
-  end_char    int not null,
-  token_count int not null check (token_count > 0),
-  node_id     bigint references rag.nodes (id) on delete cascade,
-  item        text,
-  embedding   extensions.halfvec(384),
-  tsv         tsvector,
+-- ===========================================================================
+-- Derived artifact layer (embeddings + keyword vectors for one layout)
+-- ===========================================================================
+
+create table rag.embedding_sets (
+  id                          uuid primary key default gen_random_uuid(),
+  chunker_version_id          text not null references rag.component_versions (id),
+  embedder_version_id         text not null references rag.component_versions (id),
+  keyword_analyzer_version_id text not null references rag.component_versions (id),
+  status                      text not null default 'building' check (status in ('building', 'ready', 'retired')),
+  unit_count                  int,
+  created_at                  timestamptz not null default now(),
+  unique (chunker_version_id, embedder_version_id, keyword_analyzer_version_id)
+);
+
+-- Search units: one per layout chunk (same ordinal), plus derived vectors.
+create table rag.units (
+  id                    bigint generated always as identity primary key,
+  embedding_set_id      uuid not null references rag.embedding_sets (id) on delete cascade,
+  canonical_document_id uuid not null references rag.canonical_documents (id) on delete cascade,
+  ordinal               int not null,
+  start_char            int not null check (start_char >= 0),
+  end_char              int not null,
+  token_count           int not null check (token_count > 0),
+  node_id               bigint not null references rag.nodes (id) on delete cascade,
+  item                  text,
+  embedding             extensions.halfvec(384),
+  tsv                   tsvector,
   check (end_char > start_char),
-  unique (filing_id, strategy, ordinal)
+  unique (embedding_set_id, canonical_document_id, ordinal)
 );
 
-create index chunks_strategy_filing_idx on rag.chunks (strategy, filing_id);
-create index chunks_node_idx on rag.chunks (node_id);
-create index chunks_tsv_idx on rag.chunks using gin (tsv);
--- The binary-quantised HNSW index for serving strategies is created after the
--- bulk load (see pipeline/chunking_lab/load), e.g.:
---   create index chunks_bq_hnsw_hierarchical on rag.chunks
+create index units_set_doc_idx on rag.units (embedding_set_id, canonical_document_id);
+create index units_node_idx on rag.units (node_id);
+create index units_tsv_idx on rag.units using gin (tsv);
+-- Per-set binary-quantised HNSW indexes are created after bulk load, e.g.:
+--   create index units_bq_hnsw_<set> on rag.units
 --     using hnsw ((extensions.binary_quantize(embedding)::bit(384)) extensions.bit_hamming_ops)
---     where strategy = 'hierarchical';
+--     where embedding_set_id = '<set uuid>';
 
--- ---------------------------------------------------------------------------
--- Question sets and gold evidence
--- ---------------------------------------------------------------------------
+-- ===========================================================================
+-- Retrieval configuration
+-- ===========================================================================
+
+create table rag.retrieval_configs (
+  id                         text primary key,
+  embedding_set_id           uuid not null references rag.embedding_sets (id) on delete cascade,
+  retriever_version_id       text not null references rag.component_versions (id),
+  context_builder_version_id text not null references rag.component_versions (id),
+  budget_tokens              int not null check (budget_tokens > 0),
+  created_at                 timestamptz not null default now(),
+  unique (embedding_set_id, retriever_version_id, context_builder_version_id, budget_tokens)
+);
+
+-- The single configuration served live. Hosted Supabase holds the artifacts
+-- for this configuration only.
+create table rag.production_config (
+  singleton           boolean primary key default true check (singleton),
+  retrieval_config_id text not null references rag.retrieval_configs (id),
+  benchmark_run_id    uuid,
+  activated_at        timestamptz not null default now(),
+  notes               text
+);
+
+-- ===========================================================================
+-- Evaluation
+-- ===========================================================================
 
 create table rag.questions (
   id               text primary key,
@@ -167,36 +278,29 @@ create table rag.questions (
   check (answerable = (qtype <> 'unanswerable'))
 );
 
+-- Gold evidence is anchored to a specific canonical document version.
 create table rag.gold_spans (
-  id             uuid primary key default gen_random_uuid(),
-  question_id    text not null references rag.questions (id) on delete cascade,
-  filing_id      uuid not null references rag.filings (id) on delete cascade,
-  start_char     int not null check (start_char >= 0),
-  end_char       int not null,
-  quote          text not null,
-  parser_version text not null,
+  id                    uuid primary key default gen_random_uuid(),
+  question_id           text not null references rag.questions (id) on delete cascade,
+  canonical_document_id uuid not null references rag.canonical_documents (id) on delete cascade,
+  start_char            int not null check (start_char >= 0),
+  end_char              int not null,
+  quote                 text not null,
   check (end_char > start_char)
 );
 
 create index gold_spans_question_idx on rag.gold_spans (question_id);
 
--- A gold span must quote its filing's canonical text exactly, for the same
--- parser version.
 create function rag.check_gold_span() returns trigger
 language plpgsql
 set search_path = ''
 as $$
 declare
-  v_text    text;
-  v_version text;
+  v_text text;
 begin
-  select canonical_text, parser_version into v_text, v_version
-  from rag.filings where id = new.filing_id;
-  if new.parser_version <> v_version then
-    raise exception 'gold span % was labelled on parser %, filing is on %', new.id, new.parser_version, v_version;
-  end if;
+  select text into v_text from rag.canonical_documents where id = new.canonical_document_id;
   if new.end_char > char_length(v_text) then
-    raise exception 'gold span % ends past the end of filing %', new.id, new.filing_id;
+    raise exception 'gold span % ends past the end of canonical document %', new.id, new.canonical_document_id;
   end if;
   if substr(v_text, new.start_char + 1, new.end_char - new.start_char) <> new.quote then
     raise exception 'gold span % quote does not match canonical text at [%, %)', new.id, new.start_char, new.end_char;
@@ -209,175 +313,6 @@ create trigger gold_spans_check
   before insert or update on rag.gold_spans
   for each row execute function rag.check_gold_span();
 
--- Offsets are the contract between layouts, units and labels, so the
--- canonical text is frozen once anything points into it.
-create function rag.freeze_canonical_text() returns trigger
-language plpgsql
-set search_path = ''
-as $$
-begin
-  if new.canonical_text is distinct from old.canonical_text
-     and (exists (select 1 from rag.nodes where filing_id = old.id)
-          or exists (select 1 from rag.chunk_layouts where filing_id = old.id)
-          or exists (select 1 from rag.gold_spans where filing_id = old.id)) then
-    raise exception 'canonical_text of filing % is referenced and cannot change; ingest a new parser version instead', old.id;
-  end if;
-  return new;
-end;
-$$;
-
-create trigger filings_freeze_text
-  before update of canonical_text on rag.filings
-  for each row execute function rag.freeze_canonical_text();
-
--- Post-load integrity check. Expected to return zero rows.
-create function rag.verify_corpus()
-returns table (kind text, ref text, problem text)
-language sql
-stable
-set search_path = ''
-as $$
-  select 'node', n.id::text, 'span outside filing or parent'
-  from rag.nodes n
-  join rag.filings f on f.id = n.filing_id
-  left join rag.nodes p on p.id = n.parent_id
-  where n.end_char > f.char_count
-     or (p.id is not null and (n.start_char < p.start_char or n.end_char > p.end_char))
-  union all
-  select 'chunk', c.id::text, 'span outside its node'
-  from rag.chunks c
-  join rag.nodes n on n.id = c.node_id
-  where c.start_char < n.start_char or c.end_char > n.end_char
-  union all
-  select 'layout', l.filing_id::text || '/' || l.strategy, 'span outside filing'
-  from rag.chunk_layouts l
-  join rag.filings f on f.id = l.filing_id
-  where l.ends[cardinality(l.ends)] > f.char_count;
-$$;
-
--- ---------------------------------------------------------------------------
--- Retrieval
--- ---------------------------------------------------------------------------
-
--- One function for the live site and the benchmarks.
---   exact = true : full cosine scan (benchmarks; no ANN error)
---   exact = false: binary-quantised candidates (HNSW when indexed), re-ranked
---                  by exact cosine (live)
-create function rag.search_chunks(
-  query_embedding extensions.halfvec(384),
-  query_text      text,
-  p_strategy      text,
-  p_mode          text    default 'hybrid',
-  p_k             int     default 20,
-  p_tickers       text[]  default null,
-  p_fiscal_years  int[]   default null,
-  p_items         text[]  default null,
-  p_exact         boolean default false,
-  p_candidates    int     default 100,
-  p_oversample    int     default 4,
-  p_rrf_k         int     default 60
-)
-returns table (
-  chunk_id          bigint,
-  filing_id         uuid,
-  node_id           bigint,
-  start_char        int,
-  end_char          int,
-  token_count       int,
-  score             double precision,
-  vector_rank       int,
-  keyword_rank      int,
-  vector_similarity double precision
-)
-language sql
-stable
-set search_path = ''
-set hnsw.iterative_scan = 'relaxed_order'
-as $$
-  with scope as (
-    select f.id
-    from rag.filings f
-    join rag.companies co on co.cik = f.cik
-    where (p_tickers is null or co.ticker = any (p_tickers))
-      and (p_fiscal_years is null or f.fiscal_year = any (p_fiscal_years))
-  ),
-  vec_approx as (
-    select c.id, c.embedding
-    from rag.chunks c
-    where p_mode in ('vector', 'hybrid')
-      and not p_exact
-      and query_embedding is not null
-      and c.strategy = p_strategy
-      and c.embedding is not null
-      and c.filing_id in (select id from scope)
-      and (p_items is null or c.item = any (p_items))
-    order by extensions.binary_quantize(c.embedding)::bit(384)
-             operator(extensions.<~>) extensions.binary_quantize(query_embedding)::bit(384)
-    limit p_candidates * p_oversample
-  ),
-  vec_exact as (
-    select c.id, c.embedding
-    from rag.chunks c
-    where p_mode in ('vector', 'hybrid')
-      and p_exact
-      and query_embedding is not null
-      and c.strategy = p_strategy
-      and c.embedding is not null
-      and c.filing_id in (select id from scope)
-      and (p_items is null or c.item = any (p_items))
-    order by c.embedding operator(extensions.<=>) query_embedding, c.id
-    limit p_candidates
-  ),
-  vec as (
-    select u.id,
-           1 - (u.embedding operator(extensions.<=>) query_embedding) as sim,
-           row_number() over (order by u.embedding operator(extensions.<=>) query_embedding, u.id)::int as rnk
-    from (select * from vec_approx union all select * from vec_exact) u
-    order by rnk
-    limit p_candidates
-  ),
-  q as (
-    -- OR semantics: a question rarely contains every term of its answer.
-    select to_tsquery('english', replace(plainto_tsquery('english', coalesce(query_text, ''))::text, '&', '|')) as tsq
-  ),
-  kw as (
-    select c.id,
-           row_number() over (order by ts_rank_cd(c.tsv, q.tsq) desc, c.id)::int as rnk
-    from rag.chunks c, q
-    where p_mode in ('keyword', 'hybrid')
-      and c.strategy = p_strategy
-      and c.tsv @@ q.tsq
-      and c.filing_id in (select id from scope)
-      and (p_items is null or c.item = any (p_items))
-    order by ts_rank_cd(c.tsv, q.tsq) desc, c.id
-    limit p_candidates
-  ),
-  fused as (
-    select coalesce(v.id, k.id) as id,
-           v.rnk as vr,
-           k.rnk as kr,
-           v.sim,
-           case p_mode
-             when 'vector'  then 1.0 / (p_rrf_k + v.rnk)
-             when 'keyword' then 1.0 / (p_rrf_k + k.rnk)
-             else coalesce(1.0 / (p_rrf_k + v.rnk), 0) + coalesce(1.0 / (p_rrf_k + k.rnk), 0)
-           end as s
-    from vec v
-    full outer join kw k on k.id = v.id
-  )
-  select c.id, c.filing_id, c.node_id, c.start_char, c.end_char, c.token_count,
-         fu.s::double precision, fu.vr, fu.kr, fu.sim::double precision
-  from fused fu
-  join rag.chunks c on c.id = fu.id
-  where fu.s is not null
-  order by fu.s desc, c.id
-  limit p_k;
-$$;
-
--- ---------------------------------------------------------------------------
--- Benchmarks
--- ---------------------------------------------------------------------------
-
 create table rag.benchmark_runs (
   id          uuid primary key default gen_random_uuid(),
   kind        text not null check (kind in ('chunking', 'retrieval', 'answer', 'ann_recall', 'embedding_parity', 'serving_parity')),
@@ -385,6 +320,7 @@ create table rag.benchmark_runs (
   created_at  timestamptz not null default now(),
   git_sha     text,
   corpus      jsonb not null,
+  versions    jsonb not null,
   config      jsonb not null,
   status      text not null default 'running' check (status in ('running', 'complete', 'failed')),
   summary     jsonb,
@@ -392,26 +328,22 @@ create table rag.benchmark_runs (
 );
 
 create table rag.chunking_results (
-  run_id        uuid not null references rag.benchmark_runs (id) on delete cascade,
-  strategy      text not null references rag.strategies (key),
-  metrics       jsonb not null,
-  distributions jsonb not null default '{}'::jsonb,
-  primary key (run_id, strategy)
+  run_id             uuid not null references rag.benchmark_runs (id) on delete cascade,
+  chunker_version_id text not null references rag.component_versions (id),
+  metrics            jsonb not null,
+  distributions      jsonb not null default '{}'::jsonb,
+  primary key (run_id, chunker_version_id)
 );
 
 create table rag.retrieval_results (
-  run_id           uuid not null references rag.benchmark_runs (id) on delete cascade,
-  question_id      text not null references rag.questions (id),
-  config_key       text not null,
-  strategy         text not null references rag.strategies (key),
-  mode             text not null check (mode in ('keyword', 'vector', 'hybrid', 'hybrid_rerank')),
-  context_policy   text not null check (context_policy in ('static', 'parent', 'window', 'dynamic')),
-  budget_tokens    int not null check (budget_tokens > 0),
-  ranked_chunk_ids bigint[] not null,
-  context_spans    jsonb not null,
-  metrics          jsonb not null,
-  latency_ms       numeric,
-  primary key (run_id, question_id, config_key)
+  run_id              uuid not null references rag.benchmark_runs (id) on delete cascade,
+  question_id         text not null references rag.questions (id),
+  retrieval_config_id text not null references rag.retrieval_configs (id),
+  ranked_unit_ids     bigint[] not null,
+  context_spans       jsonb not null,
+  metrics             jsonb not null,
+  latency_ms          numeric,
+  primary key (run_id, question_id, retrieval_config_id)
 );
 
 create table rag.answer_results (
@@ -428,33 +360,269 @@ create table rag.answer_results (
   unique (run_id, question_id, config_key)
 );
 
--- ---------------------------------------------------------------------------
--- Operations
--- ---------------------------------------------------------------------------
+-- ===========================================================================
+-- Telemetry
+-- ===========================================================================
 
+create table rag.ingest_runs (
+  id          uuid primary key default gen_random_uuid(),
+  environment text not null check (environment in ('benchmark', 'hosted')),
+  started_at  timestamptz not null default now(),
+  finished_at timestamptz,
+  git_sha     text,
+  host        jsonb not null default '{}'::jsonb,
+  versions    jsonb not null,
+  config      jsonb not null,
+  status      text not null default 'running' check (status in ('running', 'complete', 'failed', 'aborted')),
+  summary     jsonb
+);
+
+-- One row per filing per stage, from the first filing onwards.
+create table rag.ingest_events (
+  id           bigint generated always as identity primary key,
+  run_id       uuid not null references rag.ingest_runs (id) on delete cascade,
+  accession_no text not null,
+  stage        text not null check (stage in ('discover', 'fetch', 'parse', 'normalize', 'tokenize', 'chunk',
+                                              'embed', 'load', 'verify')),
+  started_at   timestamptz not null,
+  wall_ms      numeric not null,
+  cpu_ms       numeric,
+  bytes_in     bigint,
+  bytes_out    bigint,
+  counts       jsonb not null default '{}'::jsonb,
+  status       text not null check (status in ('ok', 'failed', 'skipped')),
+  error        text
+);
+
+create index ingest_events_run_stage_idx on rag.ingest_events (run_id, stage);
+
+-- Point-in-time size of every relation in the rag schema.
+create table rag.storage_snapshots (
+  id             bigint generated always as identity primary key,
+  run_id         uuid references rag.ingest_runs (id) on delete cascade,
+  taken_at       timestamptz not null default now(),
+  label          text not null,
+  filings_loaded int not null,
+  relation       text not null,
+  relkind        text not null,
+  row_estimate   bigint not null,
+  table_bytes    bigint not null,
+  toast_bytes    bigint not null,
+  index_bytes    bigint not null,
+  total_bytes    bigint not null
+);
+
+create index storage_snapshots_run_idx on rag.storage_snapshots (run_id, label);
+
+create function rag.snapshot_storage(p_run_id uuid, p_label text, p_filings int)
+returns int
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_rows int;
+begin
+  insert into rag.storage_snapshots
+    (run_id, label, filings_loaded, relation, relkind, row_estimate, table_bytes, toast_bytes, index_bytes, total_bytes)
+  select p_run_id, p_label, p_filings, c.relname,
+         case c.relkind when 'r' then 'table' when 'm' then 'matview' else c.relkind::text end,
+         greatest(c.reltuples, 0)::bigint,
+         pg_relation_size(c.oid),
+         coalesce(pg_total_relation_size(nullif(c.reltoastrelid, 0)), 0),
+         pg_indexes_size(c.oid),
+         pg_total_relation_size(c.oid)
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'rag' and c.relkind in ('r', 'm');
+  get diagnostics v_rows = row_count;
+  return v_rows;
+end;
+$$;
+
+-- Resumable pipeline state, one row per filing.
 create table rag.ingest_jobs (
   accession_no text primary key,
   cik          text not null,
   stage        text not null default 'discovered'
-               check (stage in ('discovered', 'fetched', 'parsed', 'canonicalised', 'chunked', 'embedded', 'loaded', 'failed', 'skipped')),
+               check (stage in ('discovered', 'fetched', 'parsed', 'canonicalised', 'chunked', 'embedded',
+                                'loaded', 'failed', 'skipped')),
   attempts     int not null default 0,
   last_error   text,
-  metrics      jsonb not null default '{}'::jsonb,
   updated_at   timestamptz not null default now()
 );
 
 create index ingest_jobs_stage_idx on rag.ingest_jobs (stage);
 
+-- ===========================================================================
+-- Integrity
+-- ===========================================================================
+
+-- Post-load check; expected to return zero rows.
+create function rag.verify_corpus()
+returns table (kind text, ref text, problem text)
+language sql
+stable
+set search_path = ''
+as $$
+  select 'node', n.id::text, 'span outside document or parent'
+  from rag.nodes n
+  join rag.canonical_documents d on d.id = n.canonical_document_id
+  left join rag.nodes p on p.id = n.parent_id
+  where n.end_char > d.char_count
+     or (p.id is not null and (n.start_char < p.start_char or n.end_char > p.end_char))
+  union all
+  select 'layout', l.canonical_document_id::text || '/' || l.chunker_version_id, 'span outside document'
+  from rag.chunk_layouts l
+  join rag.canonical_documents d on d.id = l.canonical_document_id
+  where l.ends[cardinality(l.ends)] > d.char_count
+  union all
+  select 'unit', u.id::text, 'span outside its node'
+  from rag.units u
+  join rag.nodes n on n.id = u.node_id
+  where u.start_char < n.start_char or u.end_char > n.end_char
+  union all
+  select 'unit', u.id::text, 'does not match its layout'
+  from rag.units u
+  join rag.embedding_sets s on s.id = u.embedding_set_id
+  join rag.chunk_layouts l on l.canonical_document_id = u.canonical_document_id
+                          and l.chunker_version_id = s.chunker_version_id
+  where u.start_char <> l.starts[u.ordinal + 1] or u.end_char <> l.ends[u.ordinal + 1];
+$$;
+
+-- ===========================================================================
+-- Retrieval
+-- ===========================================================================
+
+-- One function for live serving and benchmarks.
+--   exact = true : full cosine scan (benchmarks; no ANN error)
+--   exact = false: binary-quantised candidates (HNSW when indexed), re-ranked
+--                  by exact cosine (live)
+create function rag.search_units(
+  query_embedding    extensions.halfvec(384),
+  query_text         text,
+  p_embedding_set_id uuid,
+  p_mode             text    default 'hybrid',
+  p_k                int     default 20,
+  p_tickers          text[]  default null,
+  p_fiscal_years     int[]   default null,
+  p_items            text[]  default null,
+  p_exact            boolean default false,
+  p_candidates       int     default 100,
+  p_oversample       int     default 4,
+  p_rrf_k            int     default 60
+)
+returns table (
+  unit_id               bigint,
+  canonical_document_id uuid,
+  node_id               bigint,
+  start_char            int,
+  end_char              int,
+  token_count           int,
+  score                 double precision,
+  vector_rank           int,
+  keyword_rank          int,
+  vector_similarity     double precision
+)
+language sql
+stable
+set search_path = ''
+set hnsw.iterative_scan = 'relaxed_order'
+as $$
+  with scope as (
+    select d.id
+    from rag.canonical_documents d
+    join rag.filings f on f.id = d.filing_id
+    join rag.companies co on co.cik = f.cik
+    where (p_tickers is null or co.ticker = any (p_tickers))
+      and (p_fiscal_years is null or f.fiscal_year = any (p_fiscal_years))
+  ),
+  vec_approx as (
+    select u.id, u.embedding
+    from rag.units u
+    where p_mode in ('vector', 'hybrid')
+      and not p_exact
+      and query_embedding is not null
+      and u.embedding_set_id = p_embedding_set_id
+      and u.embedding is not null
+      and u.canonical_document_id in (select id from scope)
+      and (p_items is null or u.item = any (p_items))
+    order by extensions.binary_quantize(u.embedding)::bit(384)
+             operator(extensions.<~>) extensions.binary_quantize(query_embedding)::bit(384)
+    limit p_candidates * p_oversample
+  ),
+  vec_exact as (
+    select u.id, u.embedding
+    from rag.units u
+    where p_mode in ('vector', 'hybrid')
+      and p_exact
+      and query_embedding is not null
+      and u.embedding_set_id = p_embedding_set_id
+      and u.embedding is not null
+      and u.canonical_document_id in (select id from scope)
+      and (p_items is null or u.item = any (p_items))
+    order by u.embedding operator(extensions.<=>) query_embedding, u.id
+    limit p_candidates
+  ),
+  vec as (
+    select v.id,
+           1 - (v.embedding operator(extensions.<=>) query_embedding) as sim,
+           row_number() over (order by v.embedding operator(extensions.<=>) query_embedding, v.id)::int as rnk
+    from (select * from vec_approx union all select * from vec_exact) v
+    order by rnk
+    limit p_candidates
+  ),
+  q as (
+    -- OR semantics: a question rarely contains every term of its answer.
+    select to_tsquery('english', replace(plainto_tsquery('english', coalesce(query_text, ''))::text, '&', '|')) as tsq
+  ),
+  kw as (
+    select u.id,
+           row_number() over (order by ts_rank_cd(u.tsv, q.tsq) desc, u.id)::int as rnk
+    from rag.units u, q
+    where p_mode in ('keyword', 'hybrid')
+      and u.embedding_set_id = p_embedding_set_id
+      and u.tsv @@ q.tsq
+      and u.canonical_document_id in (select id from scope)
+      and (p_items is null or u.item = any (p_items))
+    order by ts_rank_cd(u.tsv, q.tsq) desc, u.id
+    limit p_candidates
+  ),
+  fused as (
+    select coalesce(v.id, k.id) as id,
+           v.rnk as vr,
+           k.rnk as kr,
+           v.sim,
+           case p_mode
+             when 'vector'  then 1.0 / (p_rrf_k + v.rnk)
+             when 'keyword' then 1.0 / (p_rrf_k + k.rnk)
+             else coalesce(1.0 / (p_rrf_k + v.rnk), 0) + coalesce(1.0 / (p_rrf_k + k.rnk), 0)
+           end as s
+    from vec v
+    full outer join kw k on k.id = v.id
+  )
+  select u.id, u.canonical_document_id, u.node_id, u.start_char, u.end_char, u.token_count,
+         fu.s::double precision, fu.vr, fu.kr, fu.sim::double precision
+  from fused fu
+  join rag.units u on u.id = fu.id
+  where fu.s is not null
+  order by fu.s desc, u.id
+  limit p_k;
+$$;
+
+-- ===========================================================================
+-- Operations
+-- ===========================================================================
+
 create table rag.query_logs (
-  id                bigint generated always as identity primary key,
-  created_at        timestamptz not null default now(),
-  feature           text not null,
-  query             text not null,
-  config            jsonb,
-  latency_ms        jsonb,
-  ranked_chunk_ids  bigint[],
-  validation_status text,
-  ip_hash           text
+  id                  bigint generated always as identity primary key,
+  created_at          timestamptz not null default now(),
+  feature             text not null,
+  query               text not null,
+  retrieval_config_id text,
+  latency_ms          jsonb,
+  ranked_unit_ids     bigint[],
+  validation_status   text,
+  ip_hash             text
 );
 
 create index query_logs_created_idx on rag.query_logs (created_at);
@@ -494,71 +662,64 @@ begin
 end;
 $$;
 
--- ---------------------------------------------------------------------------
+-- ===========================================================================
 -- Statistics for the UI (refreshed after each load)
--- ---------------------------------------------------------------------------
+-- ===========================================================================
 
 create materialized view rag.corpus_stats as
-select count(*)::int                              as filings,
-       count(distinct f.cik)::int                 as companies,
-       min(f.fiscal_year)                         as min_fiscal_year,
-       max(f.fiscal_year)                         as max_fiscal_year,
-       coalesce(sum(f.token_count), 0)::bigint    as tokens,
-       coalesce(sum(f.char_count), 0)::bigint     as chars,
-       (select count(*) from rag.nodes)::bigint   as nodes,
+select (select count(*) from rag.filings)::int                               as filings,
+       (select count(distinct cik) from rag.filings)::int                    as companies,
+       (select min(fiscal_year) from rag.filings)                            as min_fiscal_year,
+       (select max(fiscal_year) from rag.filings)                            as max_fiscal_year,
+       (select coalesce(sum(source_bytes), 0) from rag.filings)::bigint      as source_bytes,
+       (select count(*) from rag.canonical_documents)::int                   as canonical_documents,
+       (select coalesce(sum(token_count), 0) from rag.canonical_documents)::bigint as tokens,
+       (select coalesce(sum(char_count), 0) from rag.canonical_documents)::bigint  as chars,
+       (select count(*) from rag.nodes)::bigint                              as nodes,
        (select count(*) from rag.nodes where node_type in ('paragraph', 'table', 'list'))::bigint as blocks,
-       (select coalesce(sum(cardinality(sentence_starts)), 0) from rag.nodes)::bigint as sentences,
-       max(f.ingested_at)                         as last_ingested_at
-from rag.filings f;
+       (select coalesce(sum(cardinality(sentence_starts)), 0) from rag.nodes)::bigint as sentences;
 
-create materialized view rag.strategy_stats as
-select s.key                                         as strategy,
+create materialized view rag.layout_stats as
+select cv.id                                     as chunker_version_id,
+       cv.strategy,
        s.label,
        s.family,
-       s.serving,
-       s.sort_order,
-       count(l.filing_id)::int                       as filings,
-       coalesce(sum(l.chunk_count), 0)::bigint       as chunks,
-       coalesce(sum(l.total_tokens), 0)::bigint      as tokens,
+       count(l.canonical_document_id)::int       as documents,
+       coalesce(sum(l.chunk_count), 0)::bigint   as chunks,
+       coalesce(sum(l.total_tokens), 0)::bigint  as tokens,
        case when sum(l.chunk_count) > 0
-            then round(sum(l.total_tokens)::numeric / sum(l.chunk_count), 1) end as avg_tokens,
-       (select count(*) from rag.chunks c where c.strategy = s.key and c.embedding is not null)::bigint as embedded_units
-from rag.strategies s
-left join rag.chunk_layouts l on l.strategy = s.key
-group by s.key, s.label, s.family, s.serving, s.sort_order;
+            then round(sum(l.total_tokens)::numeric / sum(l.chunk_count), 1) end as avg_tokens
+from rag.component_versions cv
+join rag.strategies s on s.key = cv.strategy
+left join rag.chunk_layouts l on l.chunker_version_id = cv.id
+where cv.component = 'chunker'
+group by cv.id, cv.strategy, s.label, s.family;
 
-create unique index strategy_stats_strategy_idx on rag.strategy_stats (strategy);
+create unique index layout_stats_idx on rag.layout_stats (chunker_version_id);
 
 create function rag.refresh_stats() returns void
 language sql
 set search_path = ''
 as $$
   refresh materialized view rag.corpus_stats;
-  refresh materialized view concurrently rag.strategy_stats;
+  refresh materialized view concurrently rag.layout_stats;
 $$;
 
--- ---------------------------------------------------------------------------
+-- ===========================================================================
 -- Access control
--- ---------------------------------------------------------------------------
+-- ===========================================================================
 
 -- RLS on with no policies: anon/authenticated get nothing even if the schema
 -- is ever exposed. service_role and the owner bypass RLS.
-alter table rag.companies         enable row level security;
-alter table rag.filings           enable row level security;
-alter table rag.nodes             enable row level security;
-alter table rag.strategies        enable row level security;
-alter table rag.chunk_layouts     enable row level security;
-alter table rag.chunks            enable row level security;
-alter table rag.questions         enable row level security;
-alter table rag.gold_spans        enable row level security;
-alter table rag.benchmark_runs    enable row level security;
-alter table rag.chunking_results  enable row level security;
-alter table rag.retrieval_results enable row level security;
-alter table rag.answer_results    enable row level security;
-alter table rag.ingest_jobs       enable row level security;
-alter table rag.query_logs        enable row level security;
-alter table rag.answer_cache      enable row level security;
-alter table rag.rate_limits       enable row level security;
+do $$
+declare
+  t record;
+begin
+  for t in select tablename from pg_tables where schemaname = 'rag' loop
+    execute format('alter table rag.%I enable row level security', t.tablename);
+  end loop;
+end;
+$$;
 
 grant all on all tables in schema rag to service_role;
 grant all on all sequences in schema rag to service_role;
