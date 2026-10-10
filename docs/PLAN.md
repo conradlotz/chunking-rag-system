@@ -38,7 +38,7 @@ Primary research question:
 | # | Milestone | Exit criterion | Status |
 |---|-----------|----------------|--------|
 | M0 | Design | PLAN, ARCHITECTURE, TEST_STRATEGY reviewed | Done |
-| M1 | Schema v2 | Canonical hierarchical schema applied and smoke-tested, no data left behind | Migration written; awaiting approval to apply |
+| M1 | Schema v2 | Canonical hierarchical schema applied and smoke-tested, no data left behind | Done and tested locally; hosted apply needs your confirmation (docs/DEPLOY.md) |
 | M2 | SEC connector + canonicaliser | 100 filings canonicalised; determinism and segmentation audits pass; measured storage per filing | |
 | M3 | Configurations + chunking benchmark | All 42 primary index-time configurations laid out over the first 100 filings; invariant tests green; first intrinsic benchmark including answer-span containment | |
 | M4 | Scale to ≥ 1,000 | Full corpus ingested; failures explained; storage confirmed against the plan | |
@@ -47,7 +47,7 @@ Primary research question:
 | M7 | Search + context construction | `search_chunks`, `build_context` with tests; serving parity and ANN recall measured | |
 | M8 | Tuning sweeps + retrieval benchmark | Intrinsic sweep on all filings; screening of shortlisted configurations; full-corpus runs on the Pareto set; parameter curves and frontiers; production configuration chosen on dev; one test run; H1 decided | |
 | M9 | Answer path + answer benchmark | Validators with mutation tests; judge calibrated; baselines | |
-| M10 | UI | Mock-up approved, then Corpus → Explorer → Retrieval Lab → Benchmarks → Ask | |
+| M10 | UI | Corpus → Explorer → Retrieval Lab → Benchmarks → Ask | Overview, Retrieval Lab, Explorer, Benchmarks, Method built and tested on a local fixture; Ask not built |
 | M11 | Publish | RESULTS.md, README, video | |
 
 Benchmarks (M3, M8, M9) are not blocked by the UI (M10); the UI reads whatever
