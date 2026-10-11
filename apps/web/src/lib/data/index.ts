@@ -13,6 +13,8 @@ import type {
   Overview,
   SearchHit,
   UsageRow,
+  RankOptions,
+  RankResult,
 } from "@/lib/types";
 
 export class NotAuthorised extends Error {
@@ -93,6 +95,15 @@ export const api = (s: Session) => ({
       p_items: a.items,
       p_exact: a.exact,
     }),
+  rank: (a: { metric: string; year: number | null; division: string | null; order: string; limit: number }) =>
+    s.rpc<RankResult>("lab_rank", {
+      p_metric: a.metric,
+      p_fiscal_year: a.year,
+      p_division: a.division,
+      p_order: a.order,
+      p_limit: a.limit,
+    }),
+  rankOptions: () => s.rpc<RankOptions>("lab_rank_options"),
   /** The keyword query after spelling correction against the corpus vocabulary. */
   correctQuery: (text: string) => s.rpc<string>("lab_correct_query", { p_query: text }),
   context: (a: { unitIds: number[]; budget: number; policy: string; neighbor: number; parent: number }) =>

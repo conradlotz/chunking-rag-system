@@ -256,3 +256,43 @@ export interface RetrieveResponse {
   /** Set when spelling correction changed the words used for keyword search. */
   keyword_query?: string | null;
 }
+
+export type RankMetric =
+  | "gross_margin"
+  | "operating_margin"
+  | "net_margin"
+  | "revenue"
+  | "net_income"
+  | "operating_income"
+  | "revenue_growth";
+
+export interface RankRow {
+  rank: number;
+  ticker: string;
+  name: string;
+  cik: string;
+  division: string;
+  industry: string | null;
+  value: number;
+  numerator: number | null;
+  denominator: number | null;
+  revenue: number | null;
+  period_end: string;
+  accession_no: string;
+}
+
+export interface RankResult {
+  metric: RankMetric;
+  fiscal_year: number | null;
+  division: string | null;
+  order: "asc" | "desc";
+  companies_in_scope: number;
+  companies_ranked: number;
+  rows: RankRow[];
+}
+
+export interface RankOptions {
+  years: { year: number; companies: number }[];
+  divisions: { division: string; companies: number }[];
+  facts: number;
+}

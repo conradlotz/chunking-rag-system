@@ -1,0 +1,33 @@
+name: Load financial figures
+
+# Loads each company's reported annual figures (SEC XBRL company facts: revenue, gross profit, cost of
+# revenue, operating income, net income) into rag.financial_facts for Compare & rank. Read-only at the
+# SEC; writes only that table. Start it from the Actions tab or by pushing a change to
+# .github/financials-requests/ on main.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/financials-requests/**"]
+
+concurrency: load-data
+
+jobs:
+  financials:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        working-directory: pipeline
+        run: uv sync --frozen || uv sync
+      - name: Load figures
+        working-directory: pipeline
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          DB: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -eo pipefail
+          uv run python -m chunking_lab.financials --dsn "$DB" | tee "$RUNNER_TEMP/financials.log"
+          { echo '### Financial figures'; echo '```'; tail -n 12 "$RUNNER_TEMP/financials.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
