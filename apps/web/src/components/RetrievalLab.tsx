@@ -725,6 +725,12 @@ export function RetrievalLab({
                 <span className="chip">fixture embedder, not gte-small</span>
               )}
             </div>
+            {result.keyword_query && (
+              <p className="rise -mt-2 mb-4 text-[13px] text-ink-2" data-testid="keyword-query">
+                Spelling corrected for keyword search:{" "}
+                <span className="font-medium text-ink">{result.keyword_query}</span>
+              </p>
+            )}
 
             {result.hits.length === 0 ? (
               <div className="card card-pad border-dashed">

@@ -58,6 +58,8 @@ export async function POST(req: Request) {
       embedMs = performance.now() - e0;
     }
 
+    const corrected =
+      parsed.mode === "vector" ? Promise.resolve(null) : data.correctQuery(parsed.query).catch(() => null);
     const s0 = performance.now();
     const hits = await data.search({
       embedding,
@@ -89,6 +91,7 @@ export async function POST(req: Request) {
       context,
       timings: { embed_ms: embedMs, search_ms: searchMs, context_ms: contextMs, total_ms: performance.now() - t0 },
       fixture: session.fixture,
+      keyword_query: await corrected.then((c) => (c && c.toLowerCase() !== parsed.query.toLowerCase() ? c : null)),
     };
     return NextResponse.json(out);
   } catch (err) {

@@ -93,6 +93,8 @@ export const api = (s: Session) => ({
       p_items: a.items,
       p_exact: a.exact,
     }),
+  /** The keyword query after spelling correction against the corpus vocabulary. */
+  correctQuery: (text: string) => s.rpc<string>("lab_correct_query", { p_query: text }),
   context: (a: { unitIds: number[]; budget: number; policy: string; neighbor: number; parent: number }) =>
     s.rpc<ContextSpan[]>("lab_context", {
       p_unit_ids: a.unitIds,

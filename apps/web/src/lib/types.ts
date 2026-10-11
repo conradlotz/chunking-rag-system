@@ -253,4 +253,6 @@ export interface RetrieveResponse {
   context: ContextSpan[];
   timings: { embed_ms: number | null; search_ms: number; context_ms: number; total_ms: number };
   fixture: boolean;
+  /** Set when spelling correction changed the words used for keyword search. */
+  keyword_query?: string | null;
 }
