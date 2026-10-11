@@ -822,7 +822,7 @@ export function RetrievalLab({
                 className="rise -mt-2 mb-4 text-[13px] text-ink-2"
                 data-testid="keyword-query"
               >
-                Spelling corrected for keyword search:{" "}
+                Spelling corrected, searched for:{" "}
                 <span className="font-medium text-ink">
                   {result.keyword_query}
                 </span>

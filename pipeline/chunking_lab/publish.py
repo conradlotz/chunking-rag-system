@@ -35,7 +35,7 @@ MODEL_FILES = {"tokenizer.json": "tokenizer.json", "model_quantized.onnx": "onnx
 EMBEDDER = ComponentVersion("embedder", "gte-small-onnx-q", "1.0.0",
                             params={"dims": 384, "model": "Supabase/gte-small", "file": "model_quantized.onnx"})
 ANALYZER = ComponentVersion("keyword_analyzer", "english", "1.0.0")
-RETRIEVER = ComponentVersion("retriever", "hybrid-rrf", "1.0.0", params={"rrf_k": 60})
+RETRIEVER = ComponentVersion("retriever", "hybrid-rrf", "1.1.0", params={"rrf_k": 60, "keyword_weight": 1.5})
 CONTEXT = ComponentVersion("context_builder", "expand", "1.0.0")
 
 

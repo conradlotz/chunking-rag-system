@@ -63,18 +63,18 @@ export async function runRetrieval(
 ): Promise<RetrieveResponse> {
   const t0 = performance.now();
   const data = api(session);
+  // Correct misspellings first, so both the keyword search and the embedding see "tariffs", not "tarrifs".
+  const corrected = await data.correctQuery(parsed.query).catch(() => null);
+  const question = corrected?.trim() || parsed.query;
+
   let embedding: string | null = null;
   let embedMs: number | null = null;
   if (parsed.mode !== "keyword") {
     const e0 = performance.now();
-    embedding = await embedQuery(parsed.query, session.accessToken);
+    embedding = await embedQuery(question, session.accessToken);
     embedMs = performance.now() - e0;
   }
 
-  const corrected =
-    parsed.mode === "vector"
-      ? Promise.resolve(null)
-      : data.correctQuery(parsed.query).catch(() => null);
   const s0 = performance.now();
   const hits = await data.search({
     embedding,
@@ -111,8 +111,7 @@ export async function runRetrieval(
       total_ms: performance.now() - t0,
     },
     fixture: session.fixture,
-    keyword_query: await corrected.then((c) =>
-      c && c.toLowerCase() !== parsed.query.toLowerCase() ? c : null,
-    ),
+    keyword_query:
+      question.toLowerCase() !== parsed.query.toLowerCase() ? question : null,
   };
 }
