@@ -60,7 +60,8 @@ def main() -> None:
                     "'\\s+', ' ', 'g'), 110) "
                     "from rag.search_units(%s::extensions.halfvec(384), null, %s, 'vector', 5, "
                     "p_exact => true) s "
-                    "join rag.units u on u.id = s.unit_id join rag.canonical_documents d on d.id = s.canonical_document_id "
+                    "join rag.units u on u.id = s.unit_id "
+                    "join rag.canonical_documents d on d.id = s.canonical_document_id "
                     "join rag.filings f on f.id = d.filing_id join rag.companies c on c.cik = f.cik "
                     "order by s.vector_similarity desc", (_vec(emb), set_id))
                 rows = cur.fetchall()
