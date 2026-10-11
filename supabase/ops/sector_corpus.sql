@@ -14,6 +14,9 @@ create table if not exists rag.corpus_selection (
   selected_at timestamptz not null default now()
 );
 alter table rag.corpus_selection enable row level security;
+grant select on rag.corpus_selection to rag_loader;            -- the embedding run reads the selection
+drop policy if exists rag_loader_read on rag.corpus_selection;
+create policy rag_loader_read on rag.corpus_selection for select to rag_loader using (true);
 delete from rag.corpus_selection;
 with latest as (
   select distinct on (f.cik) f.cik, f.id from rag.filings f order by f.cik, f.fiscal_year desc, f.filed_at desc),
@@ -46,3 +49,10 @@ select 'deleted ' || count(*) as result from gone;
 delete from rag.companies c where not exists (select 1 from rag.filings f where f.cik = c.cik);
 update rag.ingest_runs set status = 'aborted', finished_at = coalesce(finished_at, now()) where status = 'running';
 select count(*) as filings_left from rag.filings;
+
+-- STEP 4: give the freed disk space back (deleted rows otherwise keep counting toward the 500 MB).
+-- Run each line on its own; each takes up to a minute.
+vacuum full rag.nodes;
+vacuum full rag.canonical_documents;
+vacuum full rag.units;
+select pg_size_pretty(pg_database_size(current_database())) as database_size;

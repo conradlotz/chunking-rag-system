@@ -219,11 +219,17 @@ def main() -> None:
         try:
             # 1. Filings already in the database that this configuration has not embedded yet. No SEC traffic.
             with conn.cursor() as cur:
+                # When a corpus selection exists (supabase/ops/sector_corpus.sql), embed only selected filings.
+                cur.execute("select to_regclass('rag.corpus_selection') is not null")
+                selected_only = cur.fetchone()[0]
                 cur.execute("select f.accession_no, coalesce(c.ticker, f.cik) from rag.filings f "
                             "join rag.companies c on c.cik=f.cik "
                             "join rag.canonical_documents d on d.filing_id=f.id "
                             "where not exists (select 1 from rag.units u where u.embedding_set_id=%s "
-                            "and u.canonical_document_id=d.id) order by c.ticker, f.fiscal_year desc", (set_id,))
+                            "and u.canonical_document_id=d.id) "
+                            + ("and exists (select 1 from rag.corpus_selection s where s.filing_id=f.id) "
+                               if selected_only else "")
+                            + "order by c.ticker, f.fiscal_year desc", (set_id,))
                 pending = cur.fetchall()
             for accession_no, ticker in pending:
                 if loaded >= args.limit:
