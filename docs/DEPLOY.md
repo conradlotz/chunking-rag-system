@@ -86,3 +86,18 @@ Then Actions, "Load real SEC filings", Run workflow. Start with 20 filings. It d
 model, loads the filings, chunks them, embeds each chunk and writes one configuration to Supabase; the run
 summary shows throughput and counts. Re-running adds more filings and skips ones already loaded.
 Fixture data is refused.
+
+## Written answers (Ask)
+
+The Search page can have Claude write a short, cited answer from exactly the passages the search
+retrieved. It needs one server-side environment variable in Vercel (Settings, Environment Variables,
+Production and Preview), then a redeploy:
+
+| Variable | Value |
+|----------|-------|
+| `ANTHROPIC_API_KEY` | An Anthropic API key (console.anthropic.com). Server-only; never prefix it with `NEXT_PUBLIC_`. |
+| `ANTHROPIC_MODEL` | Optional. Default `claude-opus-5-5` ($4 / $20 per million input / output tokens). `claude-sonnet-5-5` is half that, `claude-haiku-5-5` about a fortieth. |
+| `ANSWER_EFFORT` | Optional. Default `low`; `medium` or `high` think longer and cost more. |
+
+Without the key, search still works and the answer panel says written answers are off. Each answer
+shows its model, tokens and cost.

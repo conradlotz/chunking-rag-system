@@ -452,3 +452,17 @@ mark.term {
   border-radius: 8px;
   overflow-x: auto;
 }
+
+/* A cited passage briefly lights up when its citation is clicked. */
+.cite-flash {
+  animation: cite-flash 1.6s ease-out;
+}
+@keyframes cite-flash {
+  0%,
+  30% {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}

@@ -18,6 +18,7 @@ import type {
   RetrieveResponse,
   SearchHit,
 } from "@/lib/types";
+import { AnswerPanel, type AnswerState } from "./AnswerPanel";
 import { BudgetBar } from "./BudgetBar";
 import { Passage } from "./Passage";
 import { StrategyDot } from "./ui";
@@ -260,6 +261,7 @@ function ContextView({
                   return (
                     <div
                       key={s.ord}
+                      id={`src-${spans.indexOf(s) + 1}`}
                       className={clsx(
                         "relative px-5 py-4 pl-6",
                         j > 0 && "border-t border-dashed border-line",
@@ -277,6 +279,9 @@ function ContextView({
                         }}
                       />
                       <div className="tnum mb-1.5 flex items-center gap-2 text-[11.5px] text-muted">
+                        <span className="tnum font-semibold text-accent">
+                          [{spans.indexOf(s) + 1}]
+                        </span>
                         <span className="chip">{ROLE_CHIP[s.role]}</span>
                         <span>from hit {s.hit_rank}</span>
                         <span>{int(s.tokens)} tokens</span>
@@ -339,8 +344,76 @@ export function RetrievalLab({
     budget: number;
   } | null>(null);
   const [tab, setTab] = useState<"units" | "context">("units");
+  const [withAnswer, setWithAnswer] = useState(true);
+  const [answer, setAnswer] = useState<AnswerState | null>(null);
+
+  function cite(n: number) {
+    setTab("context");
+    window.setTimeout(() => {
+      const el = document.getElementById(`src-${n}`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("cite-flash");
+      window.setTimeout(() => el.classList.remove("cite-flash"), 1600);
+    }, 60);
+  }
 
   const terms = useMemo(() => queryTerms(searched?.q ?? ""), [searched]);
+
+  /** Search and stream Claude's answer: one "retrieval" line, then text deltas, then "done". */
+  async function streamAnswer(body: RetrieveRequest) {
+    const res = await fetch("/api/answer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok || !res.body) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(data.error ?? `Request failed (${res.status})`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let current: AnswerState = { status: "streaming", text: "", sources: [] };
+    const update = (next: Partial<AnswerState>) => {
+      current = { ...current, ...next };
+      setAnswer(current);
+    };
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        const ev = JSON.parse(line) as Record<string, unknown> & {
+          type: string;
+        };
+        if (ev.type === "retrieval") {
+          setResult(ev as unknown as RetrieveResponse);
+          setTab("units");
+          update({ sources: (ev.sources as AnswerState["sources"]) ?? [] });
+        } else if (ev.type === "text")
+          update({ text: current.text + (ev.text as string) });
+        else if (ev.type === "done")
+          update({
+            status: "done",
+            meta: ev as unknown as AnswerState["meta"],
+          });
+        else if (ev.type === "unavailable")
+          update({ status: "unavailable", message: ev.message as string });
+        else if (ev.type === "error")
+          update({ status: "error", message: ev.message as string });
+      }
+    }
+    if (current.status === "streaming")
+      update({
+        status: current.text ? "done" : "error",
+        message: "The answer stream ended early.",
+      });
+  }
 
   async function run(e?: React.FormEvent) {
     e?.preventDefault();
@@ -361,16 +434,24 @@ export function RetrievalLab({
       items,
       exact,
     };
+    setAnswer(null);
     try {
-      const res = await fetch("/api/retrieve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json()) as RetrieveResponse & { error?: string };
-      if (!res.ok)
-        throw new Error(data.error ?? `Request failed (${res.status})`);
-      setResult(data);
+      if (withAnswer) {
+        await streamAnswer(body);
+      } else {
+        const res = await fetch("/api/retrieve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = (await res.json()) as RetrieveResponse & {
+          error?: string;
+        };
+        if (!res.ok)
+          throw new Error(data.error ?? `Request failed (${res.status})`);
+        setResult(data);
+        setTab("units");
+      }
       setSearched({ q, budget });
       const sp = new URLSearchParams({
         q,
@@ -448,6 +529,15 @@ export function RetrievalLab({
             {loading ? "Searching…" : "Search"}
           </button>
         </div>
+        <label className="flex w-fit cursor-pointer items-center gap-2 text-[13px] text-ink-2">
+          <input
+            type="checkbox"
+            checked={withAnswer}
+            onChange={(e) => setWithAnswer(e.target.checked)}
+            className="h-4 w-4 accent-[var(--accent)]"
+          />
+          Write an answer with Claude from the retrieved passages
+        </label>
         <details className="rounded-lg border border-line px-4 py-3">
           <summary className="cursor-pointer select-none text-[13px] font-semibold text-ink-2">
             Options: chunking configuration, retrieval mode, filters, context
@@ -651,15 +741,17 @@ export function RetrievalLab({
             {error}
           </p>
         )}
+        {answer && <AnswerPanel answer={answer} onCite={cite} />}
         {!result && !loading && !error && (
           <div className="card card-pad border-dashed">
             <div className="font-semibold">
               Ask a question about the filings
             </div>
             <p className="mt-1 max-w-[60ch] text-[14px] text-ink-2">
-              You&apos;ll see the ranked passages, how keyword and vector
-              rankings were fused, and how the context sent to the model was
-              assembled within your token budget.
+              Claude writes a short answer with numbered citations, and below it
+              you&apos;ll see the ranked passages, how keyword and vector
+              rankings were fused, and exactly which context the answer was
+              written from.
             </p>
           </div>
         )}
@@ -726,9 +818,14 @@ export function RetrievalLab({
               )}
             </div>
             {result.keyword_query && (
-              <p className="rise -mt-2 mb-4 text-[13px] text-ink-2" data-testid="keyword-query">
+              <p
+                className="rise -mt-2 mb-4 text-[13px] text-ink-2"
+                data-testid="keyword-query"
+              >
                 Spelling corrected for keyword search:{" "}
-                <span className="font-medium text-ink">{result.keyword_query}</span>
+                <span className="font-medium text-ink">
+                  {result.keyword_query}
+                </span>
               </p>
             )}
 
