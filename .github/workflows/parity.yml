@@ -1,0 +1,36 @@
+name: Embedding parity check
+
+# Compares how Supabase's Edge Function embeds questions with how the corpus was embedded offline,
+# and runs a vector search with each. Read-only. Start it from the Actions tab or by pushing a change
+# to .github/parity-requests/ on main.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/parity-requests/**"]
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/cache@v4
+        with:
+          path: data/models
+          key: gte-small-model-v1
+      - name: Install
+        working-directory: pipeline
+        run: uv sync --frozen || uv sync
+      - name: Compare embeddings and search
+        working-directory: pipeline
+        env:
+          DB: ${{ secrets.SUPABASE_DB_URL }}
+          # Public anon key (it ships in the web app); enough to call the diagnostic function.
+          ANON: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRyd2FvbHh0eG15eHdwcGp4bXBpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5Mzk2MDEsImV4cCI6MjA5MzUxNTYwMX0.mEiqzPpEID3RZ3LBYAih430591eOhBryHMi36cBG37c
+        run: |
+          set -eo pipefail
+          uv run python -m chunking_lab.parity --dsn "$DB" --url https://drwaolxtxmyxwppjxmpi.supabase.co \
+            --key "$ANON" --models ../data/models/gte-small | tee "$RUNNER_TEMP/parity.log"
+          { echo '### Parity'; echo '```'; cat "$RUNNER_TEMP/parity.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
