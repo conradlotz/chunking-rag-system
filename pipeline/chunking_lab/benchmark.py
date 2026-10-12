@@ -266,7 +266,10 @@ def main() -> None:
             cur.execute("update rag.benchmark_runs set status = 'failed' where id = %s", (run_id,))
             raise
 
-        summary = {"configs": results, "questions": len(questions), "filings": len(docs),
+        question_set = [{"id": q["id"], "ticker": q["ticker"], "question": q["question"], "answer": q.get("answer"),
+                         "quote": q["quote"]} for q, _, _ in questions]
+        summary = {"experiment": EXPERIMENT, "configs": results, "questions": len(questions), "filings": len(docs),
+                   "question_set": question_set,
                    "wall_seconds": round(time.perf_counter() - started, 1), "finished": datetime.now(UTC).isoformat()}
         cur.execute("update rag.benchmark_runs set status = 'complete', summary = %s where id = %s",
                     (json.dumps(summary), run_id))

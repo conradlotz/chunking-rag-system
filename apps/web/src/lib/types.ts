@@ -224,7 +224,7 @@ export interface SweepPoint {
   retrieval_p95_ms: number | null;
   answer_p95_ms: number | null;
   /** Optional: sample size and confidence intervals, e.g. { n: 40, ci: { recall_at_5: [0.71, 0.89] } } */
-  extra?: { n?: number; ci?: Record<string, [number, number]>; fixture?: boolean } | null;
+  extra?: { n?: number; ci?: Record<string, [number, number]>; fixture?: boolean; [key: string]: unknown } | null;
 }
 
 export interface Benchmarks {

@@ -102,3 +102,49 @@ test("formatters", () => {
   assert.equal(describeConfig("chunker/fixed.s480.o15@1.0.0"), "480 tokens · 15% overlap");
   assert.equal(describeConfig("chunker/hierarchical.a256@1.0.0"), "256-token atoms");
 });
+
+import { chunkSizeVerdict } from "./verdict.ts";
+
+test("chunkSizeVerdict reads the chunk-size experiment and explains it in plain words", () => {
+  const point = (strategy: string, size: number, found: number, tokens: number, b2000: number) => ({
+    id: size + (strategy === "fixed" ? 0 : 1000),
+    experiment_id: "chunk-size-10k",
+    chunker_version_id: `chunker/${strategy}.${size}@1`,
+    params: strategy === "fixed" ? { strategy, size, overlap_pct: 0 } : { strategy, max_tokens: size },
+    stage: "screening",
+    recall_at_5: found,
+    mrr: found / 2,
+    answer_span_containment: 0.9,
+    full_evidence_rate: found,
+    answer_accuracy: null,
+    chunks: 1000,
+    tokens_embedded: 100000,
+    index_bytes: null,
+    context_tokens_mean: tokens,
+    retrieval_p95_ms: null,
+    answer_p95_ms: null,
+    extra: { recall_at_budget_2000: b2000, per_question_rank: { "G-001": 1 } },
+  });
+  const v = chunkSizeVerdict({
+    experiments: [],
+    points: [
+      point("fixed", 128, 0.5, 600, 0.6),
+      point("structural", 128, 0.6, 600, 0.7),
+      point("fixed", 480, 0.7, 2300, 0.5),
+      point("structural", 480, 0.8, 2300, 0.55),
+      { ...point("fixed", 256, 0.1, 1, 1), stage: "intrinsic" },
+    ],
+    runs: [{ id: "r", kind: "retrieval", environment: "hosted", created_at: "", status: "complete",
+      summary: { experiment: "chunk-size-10k", questions: 2, filings: 100, question_set: [{ id: "G-001", ticker: "X", question: "q", answer: null, quote: "z" }] } }],
+  })!;
+  assert.equal(v.best.config, "chunker/structural.480@1");
+  assert.equal(v.worst.config, "chunker/fixed.128@1");
+  assert.equal(v.rows.length, 2);
+  assert.ok(Math.abs(v.structuralEdge! - 0.1) < 1e-9);
+  assert.equal(v.nFilings, 100);
+  assert.match(v.sentences[0]!, /^Yes\. .* 50% .* 80% with structure-aware 480-token chunks/);
+  assert.match(v.sentences[1]!, /4× as much text/);
+  assert.match(v.sentences[2]!, /beat blind token windows by 10 points/);
+  assert.match(v.sentences[3]!, /structure-aware 128-token chunks found the most answers \(70%\)/);
+  assert.equal(chunkSizeVerdict({ experiments: [], points: [], runs: [] }), null);
+});
