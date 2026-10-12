@@ -8,7 +8,6 @@ const CHUNKER = /^chunker\/[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$/;
 
 export async function GET(req: Request) {
   const session = await getSession();
-  if (!session.user) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
   const url = new URL(req.url);
   const doc = url.searchParams.get("doc") ?? "";
   const chunker = url.searchParams.get("chunker") ?? "";

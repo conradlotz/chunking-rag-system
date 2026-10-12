@@ -1,8 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login"];
-
 export async function middleware(request: NextRequest) {
   // Fixture mode (local development only) has no login. The data layer refuses to run it in production.
   if (process.env.LAB_FIXTURE === "1" && process.env.NODE_ENV !== "production") return NextResponse.next();
@@ -36,15 +34,9 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
-  const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
-  if (!user && !isPublic) {
-    if (pathname.startsWith("/api/")) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
-    const login = request.nextUrl.clone();
-    login.pathname = "/login";
-    login.search = pathname === "/" ? "" : `?next=${encodeURIComponent(pathname + request.nextUrl.search)}`;
-    return NextResponse.redirect(login);
-  }
+  // Visitors without a session continue as guests. Whether guests may see anything is a database setting
+  // (rag.app_settings.guest_mode), checked by the app layout and by every lab_* function.
   if (user && pathname === "/login") {
     const home = request.nextUrl.clone();
     home.pathname = "/search";

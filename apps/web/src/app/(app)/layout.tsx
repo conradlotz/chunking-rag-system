@@ -8,10 +8,10 @@ export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
-  if (!session.user) redirect("/login");
-
-  const allowed = await api(session).isAllowed();
-  if (!allowed) {
+  const allowed = await api(session).isAllowed().catch(() => false);
+  // No session and guest mode off: sign in.
+  if (!session.user && !allowed) redirect("/login");
+  if (session.user && !allowed) {
     return (
       <div className="flex min-h-screen items-center justify-center px-6">
         <div className="card card-pad max-w-md">
@@ -35,7 +35,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <Shell email={session.user.email} fixture={session.fixture}>
+    <Shell email={session.user?.email ?? null} fixture={session.fixture}>
       {children}
     </Shell>
   );

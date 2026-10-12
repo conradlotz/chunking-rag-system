@@ -13,6 +13,19 @@ import {
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+/** Written answers a guest may request per hour, per IP address. Best effort: counted per server instance. */
+const GUEST_ANSWERS_PER_HOUR = 20;
+const recent = new Map<string, number[]>();
+function allowAnswer(ip: string): boolean {
+  const now = Date.now();
+  const times = (recent.get(ip) ?? []).filter((t) => now - t < 3_600_000);
+  if (times.length >= GUEST_ANSWERS_PER_HOUR) return false;
+  times.push(now);
+  recent.set(ip, times);
+  if (recent.size > 5000) recent.clear();
+  return true;
+}
+
 /**
  * Search, then have Claude write an answer from exactly the context the search built.
  * Streams newline-delimited JSON: one "retrieval" line (the same payload as /api/retrieve plus the numbered
@@ -20,8 +33,15 @@ export const maxDuration = 60;
  */
 export async function POST(req: Request) {
   const session = await getSession();
-  if (!session.user)
-    return Response.json({ error: "unauthorised" }, { status: 401 });
+  // Guests (no sign-in) share the server's Anthropic key, so each visitor gets a small hourly allowance.
+  if (!session.user && process.env.ANTHROPIC_API_KEY) {
+    const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0]?.trim() || "unknown";
+    if (!allowAnswer(ip))
+      return Response.json(
+        { error: `Guests can ask for ${GUEST_ANSWERS_PER_HOUR} written answers an hour. Search still works; try again later.` },
+        { status: 429 },
+      );
+  }
 
   const parsed = parseRetrieveRequest(await req.json().catch(() => null));
   if (typeof parsed === "string")

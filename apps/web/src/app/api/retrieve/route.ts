@@ -5,8 +5,8 @@ import { parseRetrieveRequest, runRetrieval } from "@/lib/retrieval";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  // Access is decided in the database (allow-listed user, or guest mode); refusals surface as NotAuthorised.
   const session = await getSession();
-  if (!session.user) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
 
   const parsed = parseRetrieveRequest(await req.json().catch(() => null));
   if (typeof parsed === "string") return NextResponse.json({ error: parsed }, { status: 400 });

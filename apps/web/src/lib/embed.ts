@@ -19,11 +19,13 @@ export function fixtureEmbed(text: string, dims = 384): number[] {
 /** Query embedding: Supabase's built-in gte-small via the embed-query Edge Function (same model as the corpus). */
 export async function embedQuery(text: string, accessToken: string | null): Promise<string> {
   if (fixtureMode()) return `[${fixtureEmbed(text).join(",")}]`;
-  if (!accessToken) throw new Error("not signed in");
   const { url, key } = supabaseEnv();
+  // Guests have no token: the Edge Function then checks access as the anonymous role (guest mode).
+  const headers: Record<string, string> = { "Content-Type": "application/json", apikey: key };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   const res = await fetch(`${url}/functions/v1/embed-query`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}`, apikey: key },
+    headers,
     body: JSON.stringify({ text }),
     cache: "no-store",
   });

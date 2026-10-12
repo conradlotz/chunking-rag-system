@@ -16,8 +16,6 @@ const METRICS = new Set([
 /** Rank companies by a reported figure (rag.financial_facts via public.lab_rank). */
 export async function POST(req: Request) {
   const session = await getSession();
-  if (!session.user)
-    return NextResponse.json({ error: "unauthorised" }, { status: 401 });
   const b = ((await req.json().catch(() => null)) ?? {}) as Record<
     string,
     unknown

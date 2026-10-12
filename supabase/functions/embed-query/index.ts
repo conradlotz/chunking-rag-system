@@ -1,5 +1,7 @@
 // Query embedding with Supabase's built-in gte-small model (the same model that embeds the corpus offline).
-// Callable only by a signed-in user who is on the research allow-list; the anon key alone is refused.
+// Access is decided by the database, exactly as for every lab_* call: an allow-listed signed-in user, or any
+// visitor while guest mode is on (rag.app_settings.guest_mode). The gateway's JWT check is off so guests, who
+// have no session, can call it; lab_is_allowed below is the check.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 declare const Supabase: { ai: { Session: new (model: string) => { run(input: string, opts: Record<string, unknown>): Promise<ArrayLike<number>> } } };
@@ -13,17 +15,15 @@ const json = (body: unknown, status = 200) =>
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
 
-  const auth = req.headers.get("Authorization") ?? "";
-  if (!auth.startsWith("Bearer ")) return json({ error: "unauthorised" }, 401);
-
-  const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
-    global: { headers: { Authorization: auth } },
-  });
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return json({ error: "unauthorised" }, 401);
-
-  const { data: allowed } = await supabase.rpc("lab_is_allowed");
-  if (allowed !== true) return json({ error: "forbidden" }, 403);
+  // A signed-in user's token is forwarded; a guest has none and is checked as the anonymous role.
+  const auth = req.headers.get("Authorization");
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!,
+    auth?.startsWith("Bearer ey") ? { global: { headers: { Authorization: auth } } } : {},
+  );
+  const { data: allowed, error } = await supabase.rpc("lab_is_allowed");
+  if (error || allowed !== true) return json({ error: "forbidden" }, 403);
 
   let body: { text?: unknown };
   try {

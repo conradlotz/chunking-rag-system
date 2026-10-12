@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { LogOut } from "lucide-react";
 import { signOut } from "@/app/login/actions";
@@ -80,14 +81,18 @@ export function Shell({
           )}
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
-              {/* The account name is not shown: visitors share a demo login. */}
               <div className="truncate text-[12px] font-medium text-ink-2">
-                {email ? "Signed in" : "Not signed in"}
+                {email ? "Signed in" : "Guest"}
               </div>
             </div>
             <ThemeToggle />
           </div>
-          {!fixture && (
+          {!fixture && !email && (
+            <Link href="/login" className="btn w-full">
+              Owner sign in
+            </Link>
+          )}
+          {!fixture && email && (
             <form action={signOut}>
               <button className="btn w-full" type="submit">
                 <LogOut size={14} /> Sign out
