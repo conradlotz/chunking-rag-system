@@ -44,7 +44,10 @@ export const getSession = cache(async (): Promise<Session> => {
     data: { session },
   } = await supabase.auth.getSession();
   const rpc = async <T>(fn: string, args: Record<string, unknown> = {}): Promise<T> => {
-    const { data, error } = await supabase.rpc(fn, args);
+    let { data, error } = await supabase.rpc(fn, args);
+    // 57014 = statement timeout. The first query after the database idles reads its tables back from
+    // disk; the retry finds them cached. A timed-out statement is rolled back, so retrying is safe.
+    if (error?.code === "57014") ({ data, error } = await supabase.rpc(fn, args));
     if (error) {
       if (error.code === "42501") throw new NotAuthorised();
       throw new Error(`${fn}: ${error.message}`);
