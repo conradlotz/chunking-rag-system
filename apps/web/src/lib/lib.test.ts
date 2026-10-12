@@ -144,6 +144,7 @@ test("chunkSizeVerdict reads the chunk-size experiment and explains it in plain 
   assert.equal(v.nFilings, 100);
   assert.match(v.sentences[0]!, /^Yes\. .* 50% .* 80% with structure-aware 480-token chunks/);
   assert.match(v.sentences[1]!, /4× as much text/);
+  assert.equal(v.sentences.length, 4);
   assert.match(v.sentences[2]!, /beat blind token windows by 10 points/);
   assert.match(v.sentences[3]!, /structure-aware 128-token chunks found the most answers \(70%\)/);
   assert.equal(chunkSizeVerdict({ experiments: [], points: [], runs: [] }), null);

@@ -63,13 +63,10 @@ export function ChunkSizeAnswer({ v }: { v: Verdict }) {
                   </span>
                 </th>
               ))}
-              <th className="px-4 py-2.5 font-medium" title="Tokens in the top five passages (structure-aware)">Text to read</th>
-              <th className="px-4 py-2.5 font-medium" title="Answer sentence kept inside a single passage (structure-aware)">Answer kept whole</th>
             </tr>
           </thead>
           <tbody>
             {v.rows.map((r) => {
-              const ref = r.structural ?? r.fixed;
               return (
                 <tr key={r.size} className="border-b border-line last:border-0">
                   <td className="tnum px-4 py-2.5 font-medium">{r.size} tokens</td>
@@ -77,12 +74,19 @@ export function ChunkSizeAnswer({ v }: { v: Verdict }) {
                     const c = r[s.key];
                     return (
                       <td key={s.key} className="px-4 py-2.5">
-                        {c ? <Bar value={c.found} best={c.config === v.best.config} /> : <span className="text-muted">—</span>}
+                        {c ? (
+                          <>
+                            <Bar value={c.found} best={c.config === v.best.config} />
+                            <div className="tnum mt-1 text-[12px] text-muted">
+                              reads {int(c.tokens)} tokens · answer kept whole {pct(c.whole, 0)}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
                       </td>
                     );
                   })}
-                  <td className="tnum px-4 py-2.5 text-ink-2">{ref ? `${int(ref.tokens)} tokens` : "—"}</td>
-                  <td className="tnum px-4 py-2.5 text-ink-2">{ref ? pct(ref.whole, 0) : "—"}</td>
                 </tr>
               );
             })}

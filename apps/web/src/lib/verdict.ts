@@ -16,6 +16,7 @@ export interface Cell {
   keyword: number | null;
   midSentence: number | null;
   ranks: Record<string, number | null>;
+  docAt5: number | null;
 }
 
 export interface SizeRow {
@@ -70,6 +71,7 @@ function cell(p: SweepPoint): (Cell & { strategy: string; size: number }) | null
     vector: num(extra.vector_recall_at_5),
     keyword: num(extra.keyword_recall_at_5),
     midSentence: num(extra.mid_sentence_cut_rate),
+    docAt5: num(extra.doc_at_5),
     ranks: (extra.per_question_rank as Record<string, number | null>) ?? {},
   };
 }
@@ -116,6 +118,13 @@ export function chunkSizeVerdict(b: Benchmarks): Verdict | null {
   } else {
     sentences.push(`Barely: every configuration found the answer in the top five results ${pc(worst.found)} to ${pc(best.found)} of the time.`);
   }
+  const tied = ranked.filter((c) => Math.abs(c.found - best.found) < 1e-9);
+  const costliest = tied[tied.length - 1]!;
+  if (tied.length > 1 && costliest.tokens > best.tokens * 1.2) {
+    sentences.push(
+      `${tied.length} setups tied at ${pc(best.found)}, but ${label(best.strategy, best.size)} got there reading ${Math.round(best.tokens).toLocaleString("en-US")} tokens, against ${Math.round(costliest.tokens).toLocaleString("en-US")} for ${label(costliest.strategy, costliest.size)}.`,
+    );
+  }
   const smallest = rows[0]!;
   const largest = rows[rows.length - 1]!;
   const s0 = smallest.structural ?? smallest.fixed;
@@ -138,6 +147,13 @@ export function chunkSizeVerdict(b: Benchmarks): Verdict | null {
   if (budget) {
     sentences.push(
       `With the reading budget fixed at 2,000 tokens, ${label(budget.strategy, budget.size)} found the most answers (${pc(budget.budget2000!)}).`,
+    );
+  }
+
+  if (cells.every((c) => c.docAt5 != null && c.docAt5 >= 0.95)) {
+    const all = cells.every((c) => c.docAt5 === 1);
+    sentences.push(
+      `Finding the right company's filing was never the problem: it was in the top five for ${all ? "every" : "almost every"} question in every setup. The misses were about picking the right passage inside it, which is exactly what chunking controls.`,
     );
   }
 
