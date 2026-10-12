@@ -15,6 +15,7 @@ import csv
 import hashlib
 import io
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -136,7 +137,9 @@ class SecClient:
             entry = by_ticker.get(symbol) or by_ticker.get(symbol.replace(".", "-"))
             if entry is None:
                 continue
-            companies.append(Company(f"{int(entry['cik_str']):010d}", symbol, row.get("Security") or entry["title"]))
+            # The public list has stray markup now and then ("ResMed|"); keep letters, digits and normal punctuation.
+            name = re.sub(r"[|\[\]{}<>~^]+", "", row.get("Security") or entry["title"]).strip()
+            companies.append(Company(f"{int(entry['cik_str']):010d}", symbol, name))
         return companies
 
     # Discovery --------------------------------------------------------------

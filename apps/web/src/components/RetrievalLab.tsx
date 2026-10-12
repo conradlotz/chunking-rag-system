@@ -28,6 +28,20 @@ import { Passage } from "./Passage";
 import { StrategyDot } from "./ui";
 
 type Mode = RetrieveRequest["mode"];
+/** Starting points for a first-time visitor; each returns on-topic passages from many companies. */
+const EXAMPLES = [
+  "How are tariffs affecting costs and margins?",
+  "Which companies depend heavily on one large customer?",
+  "How are companies investing in artificial intelligence?",
+  "What cybersecurity incidents or threats do companies describe?",
+  "How do higher interest rates affect the business?",
+  "What supply chain risks do companies face?",
+  "How do foreign exchange rates affect results?",
+  "How is extreme weather or climate change a risk to the business?",
+  "What drove revenue growth last year?",
+  "How many employees do companies have, and where do they work?",
+];
+
 const ITEM_LABELS: Record<string, string> = {
   "1": "Business",
   "1A": "Risk Factors",
@@ -534,6 +548,19 @@ export function RetrievalLab({
     }
   }
 
+  // An example question fills the box, then runs once the new question is in state.
+  const [pendingRun, setPendingRun] = useState(false);
+  useEffect(() => {
+    if (!pendingRun) return;
+    setPendingRun(false);
+    void run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingRun]);
+  const ask = (question: string) => {
+    setQ(question);
+    setPendingRun(true);
+  };
+
   // A shared link carries the question: run it straight away so the visitor lands on results.
   const autoRan = useRef(false);
   useEffect(() => {
@@ -822,9 +849,21 @@ export function RetrievalLab({
         {!result && !loading && !error && (
           <div className="card card-pad border-dashed">
             <div className="font-semibold">
-              Ask a question about the filings
+              Try a question, or type your own above
             </div>
-            <p className="mt-1 max-w-[60ch] text-[14px] text-ink-2">
+            <div className="mt-3 flex flex-wrap gap-2" data-testid="examples">
+              {EXAMPLES.map((ex) => (
+                <button
+                  key={ex}
+                  type="button"
+                  onClick={() => ask(ex)}
+                  className="rounded-full border border-line-2 bg-surface px-3 py-1.5 text-left text-[13px] text-ink hover:border-accent hover:text-accent"
+                >
+                  {ex}
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 max-w-[60ch] text-[14px] text-ink-2">
               {answersEnabled
                 ? "Claude writes a short answer with numbered citations. Below it are the passages it was written from, grouped by company, and “How we got there” shows every step."
                 : "You get the most relevant passages from 250 companies' latest 10-K filings, grouped by company, and “How we got there” shows every step."}

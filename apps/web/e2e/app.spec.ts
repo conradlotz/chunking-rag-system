@@ -29,7 +29,7 @@ async function search(page: Page, q: string) {
 
 test("overview shows the corpus and four separate resource panels", async ({ page }) => {
   const errors = collectErrors(page);
-  await page.goto("/");
+  await page.goto("/corpus");
   await expect(page.getByRole("heading", { name: "What the system is holding" })).toBeVisible();
   await expect(page.locator('[data-testid="kpis"]')).toContainText("Filings");
   await expect(page.locator('[data-testid="layout-table"] tbody tr')).not.toHaveCount(0);
@@ -191,4 +191,12 @@ test("phone width has no horizontal page scroll", async ({ page }) => {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, `horizontal overflow on ${path}`).toBeLessThanOrEqual(1);
   }
+});
+
+test("the front page opens Ask, and an example question runs a search", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/search$/);
+  await page.getByTestId("examples").getByRole("button").first().click();
+  await page.waitForSelector('[data-testid="hit"]');
+  await expect(page.locator("#q")).toHaveValue(/tariffs/);
 });

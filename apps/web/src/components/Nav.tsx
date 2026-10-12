@@ -28,7 +28,7 @@ const ITEMS: {
     view: "rank",
   },
   { href: "/explorer", label: "Read a filing", icon: ScanSearch },
-  { href: "/", label: "Corpus metrics", icon: Layers, group: "Under the hood" },
+  { href: "/corpus", label: "Corpus metrics", icon: Layers, group: "Under the hood" },
   { href: "/benchmarks", label: "Benchmarks", icon: FlaskConical },
   { href: "/method", label: "How it works", icon: BookOpenText },
 ];
@@ -45,9 +45,7 @@ export function Nav() {
       {ITEMS.map(({ href, label, icon: Icon, group, view }) => {
         const active = view
           ? pathname === "/search" && currentView === view
-          : href === "/"
-            ? pathname === "/"
-            : pathname.startsWith(href);
+          : pathname.startsWith(href);
         return (
           <div key={href} className="contents">
             {group && (

@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Coins, Cpu, Download, HardDrive } from "lucide-react";
 import Link from "next/link";
-import { PageHeader } from "@/components/ui";
+import { TechnicalSummary } from "@/components/TechnicalSummary";
+import { PageHeader, Section } from "@/components/ui";
 import { compact, int } from "@/lib/format";
 import { api, getSession } from "@/lib/data";
 
@@ -60,9 +61,11 @@ function Cost({
 }
 
 export default async function MethodPage() {
-  const overview = await api(await getSession())
-    .overview()
-    .catch(() => null);
+  const data = api(await getSession());
+  const [overview, benchmarks] = await Promise.all([
+    data.overview().catch(() => null),
+    data.benchmarks().catch(() => null),
+  ]);
   const corpus = overview?.corpus ?? null;
   const live =
     overview?.embedding_sets.find(
@@ -78,8 +81,23 @@ export default async function MethodPage() {
       <PageHeader
         eyebrow="How it works"
         title="From a 10-K filing to an answer"
-        lead="Five steps, in plain words, with the real numbers from this system. Everything below the walkthrough is the detail for anyone who wants it."
+        lead="A technical summary of how the system works and what it showed, then the same story in five plain steps, then the detail."
       />
+      {benchmarks && (
+        <Section
+          title="Technical summary"
+          note="How retrieval-augmented generation works here, and what the benchmarks taught about chunking. Numbers come from the live benchmarks."
+          id="summary"
+        >
+          <TechnicalSummary
+            b={benchmarks}
+            filings={corpus?.filings ?? null}
+            passages={passages}
+            tokens={live?.tokens_embedded ?? null}
+          />
+        </Section>
+      )}
+      <h2 className="display mb-5 text-[24px]">In five plain steps</h2>
       <ol
         className="rise mb-12 max-w-[860px] space-y-7"
         data-testid="walkthrough"
@@ -120,9 +138,10 @@ export default async function MethodPage() {
         </Walk>
         <Walk n={4} title="Find the passages that fit your question">
           Your question gets the same treatment: spelling is corrected, then it
-          becomes 384 numbers too. The search finds passages that use your words
-          and passages close in meaning, combines the two lists, and keeps the
-          best ten or so.
+          becomes 384 numbers too. By default the search finds the passages
+          closest in meaning and keeps the best ten. You can also ask for
+          passages containing every word of the question, or both lists
+          combined.
         </Walk>
         <Walk n={5} title="Write the answer from those passages only">
           Claude reads just those passages and writes a short answer, citing
