@@ -1,0 +1,39 @@
+name: Chunk size benchmark
+
+# Answers "does changing the chunk size help?": cuts the same real filings into fixed-size and
+# structure-aware chunks at 128 / 256 / 384 / 480 tokens, embeds each version with gte-small, and
+# scores the hand-written questions in bench/questions.json against each. Writes only the questions,
+# their answer spans and one result row per configuration (what the Benchmarks page shows); no
+# vectors are stored. Start it from the Actions tab or by pushing a change to
+# .github/benchmark-requests/ (or bench/questions.json) on main.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/benchmark-requests/**", "bench/questions.json"]
+
+concurrency: benchmark
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/cache@v4
+        with:
+          path: data/models
+          key: gte-small-model-v1
+      - name: Install
+        working-directory: pipeline
+        run: uv sync --frozen || uv sync
+      - name: Run benchmark
+        working-directory: pipeline
+        env:
+          DB: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -eo pipefail
+          uv run python -m chunking_lab.benchmark --dsn "$DB" --questions ../bench/questions.json \
+            --models ../data/models/gte-small | tee "$RUNNER_TEMP/benchmark.log"
+          { echo '### Chunk size benchmark'; echo '```'; tail -n 140 "$RUNNER_TEMP/benchmark.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

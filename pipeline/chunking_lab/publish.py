@@ -94,20 +94,17 @@ def _vec(v: np.ndarray) -> str:
     return "[" + ",".join(f"{x:.6f}" for x in v) + "]"
 
 
-def _embed_filing(cur, embedder: Embedder, chunker, tokenizer, set_id, accession_no: str) -> tuple[int, int, float]:
-    """Chunk one loaded filing, embed every chunk, store layout and units. Returns (units, tokens, seconds)."""
-    cur.execute("select d.id, d.text from rag.canonical_documents d join rag.filings f on f.id=d.filing_id "
-                "where f.accession_no=%s", (accession_no,))
-    doc_id, text = cur.fetchone()
+def load_document(cur, doc_id, text: str, tokenizer):
+    """Rebuild the in-memory canonical document from the database, exactly as stored.
+
+    Returns (document, node ordinal -> node id, node ordinal -> item)."""
+    from chunking_lab.model import CanonicalDocument, Node
+
     cur.execute("select ordinal, id, start_char, end_char, item from rag.nodes "
                 "where canonical_document_id=%s", (doc_id,))
     rows = cur.fetchall()
     ids = {r[0]: r[1] for r in rows}
     items = {r[0]: r[4] for r in rows}
-
-    # Rebuild the in-memory document from the database so chunking sees exactly what was stored.
-    from chunking_lab.model import CanonicalDocument, Node
-
     cur.execute("select ordinal,parent_id,depth,node_type,start_char,end_char,token_count,item,heading,heading_path,"
                 "sentence_starts from rag.nodes where canonical_document_id=%s order by ordinal", (doc_id,))
     by_id = {r[1]: r[0] for r in rows}
@@ -118,6 +115,15 @@ def _embed_filing(cur, embedder: Embedder, chunker, tokenizer, set_id, accession
                             token_count=sum(n.token_count for n in nodes if n.is_leaf),
                             parser_version=PARSER.id, normalizer_version=NORMALIZER.id,
                             tokenizer_version=tokenizer.version.id)
+    return doc, ids, items
+
+
+def _embed_filing(cur, embedder: Embedder, chunker, tokenizer, set_id, accession_no: str) -> tuple[int, int, float]:
+    """Chunk one loaded filing, embed every chunk, store layout and units. Returns (units, tokens, seconds)."""
+    cur.execute("select d.id, d.text from rag.canonical_documents d join rag.filings f on f.id=d.filing_id "
+                "where f.accession_no=%s", (accession_no,))
+    doc_id, text = cur.fetchone()
+    doc, ids, items = load_document(cur, doc_id, text, tokenizer)
     layout = chunker.layout(doc, tokenizer)
     cur.execute("insert into rag.chunk_layouts (canonical_document_id,chunker_version_id,starts,ends,token_counts,"
                 "node_ids,total_tokens) values (%s,%s,%s,%s,%s,%s,%s) on conflict do nothing",

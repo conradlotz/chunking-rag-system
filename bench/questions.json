@@ -1,0 +1,389 @@
+{
+ "note": "Gold questions written by hand against the latest 10-K of each company in the hosted corpus. 'quote' is the exact filing sentence (or clause) that answers the question; the benchmark locates it in the canonical text and scores whether retrieval finds it.",
+ "questions": [
+  {
+   "id": "G-001",
+   "ticker": "LEN",
+   "qtype": "numeric",
+   "question": "What was Lennar's gross margin on home sales in 2025, and how does it compare with 2024?",
+   "quote": "Gross margins on home sales were $5.7 billion, or 17.7%, in the year ended November 30, 2025, compared to $7.5 billion, or 22.3%, in the year ended November 30, 2024.",
+   "answer": "17.7% in 2025, down from 22.3% in 2024."
+  },
+  {
+   "id": "G-002",
+   "ticker": "LEN",
+   "qtype": "factual",
+   "question": "Why did Lennar's homebuilding margins fall?",
+   "quote": "gross margins decreased primarily due to a lower revenue per square foot and higher land costs year over year",
+   "answer": "Lower revenue per square foot and higher land costs."
+  },
+  {
+   "id": "G-003",
+   "ticker": "PHM",
+   "qtype": "numeric",
+   "question": "How did PulteGroup's gross margin from home sales change in 2025?",
+   "quote": "gross margin from home sales, which decreased to 26.3% in 2025 versus 28.9% in 2024",
+   "answer": "Down to 26.3% from 28.9%."
+  },
+  {
+   "id": "G-004",
+   "ticker": "PHM",
+   "qtype": "numeric",
+   "question": "What was PulteGroup's home sale gross margin in the fourth quarter of 2025?",
+   "quote": "from 27.5% in the first quarter of 2025 to 24.7% in the fourth quarter of 2025",
+   "answer": "24.7%."
+  },
+  {
+   "id": "G-005",
+   "ticker": "AMP",
+   "qtype": "numeric",
+   "question": "How much did Ameriprise's total assets under management grow in 2025?",
+   "quote": "Total AUM increased $127.0 billion, or 11%, to $1.3 trillion as of December 31, 2025",
+   "answer": "Up $127.0 billion (11%) to $1.3 trillion."
+  },
+  {
+   "id": "G-006",
+   "ticker": "MRSH",
+   "qtype": "numeric",
+   "question": "How much consulting revenue did Marsh report for 2025?",
+   "quote": "Consulting revenue in 2025 was $9.8 billion, an increase of 7%, or 5% on an underlying basis.",
+   "answer": "$9.8 billion, up 7%."
+  },
+  {
+   "id": "G-007",
+   "ticker": "LMT",
+   "qtype": "numeric",
+   "question": "By how much did Lockheed Martin's product sales rise in 2025?",
+   "quote": "Product sales increased $3.4 billion, or 6%, in 2025 as compared to 2024.",
+   "answer": "$3.4 billion, or 6%."
+  },
+  {
+   "id": "G-008",
+   "ticker": "LMT",
+   "qtype": "factual",
+   "question": "Which Lockheed Martin business areas drove the growth in product sales?",
+   "quote": "higher product sales of approximately $1.7 billion at MFC, $1.0 billion at Aeronautics, and $475 million at Space",
+   "answer": "MFC ($1.7B), Aeronautics ($1.0B) and Space ($475M)."
+  },
+  {
+   "id": "G-009",
+   "ticker": "DLTR",
+   "qtype": "numeric",
+   "question": "What was Dollar Tree's comparable store sales growth for the year?",
+   "quote": "Net sales increased 10.4% to $19,395.7 million due to a 5.3% comparable store net sales increase",
+   "answer": "5.3%."
+  },
+  {
+   "id": "G-010",
+   "ticker": "ORLY",
+   "qtype": "numeric",
+   "question": "What was O'Reilly Automotive's gross profit as a percentage of sales in 2025?",
+   "quote": "Gross profit for the year ended December 31, 2025, increased 7% to $9.17 billion (or 51.6% of sales)",
+   "answer": "51.6% of sales."
+  },
+  {
+   "id": "G-011",
+   "ticker": "ORLY",
+   "qtype": "factual",
+   "question": "Why did O'Reilly's gross margin percentage improve?",
+   "quote": "was due to improved acquisition costs and distribution operating efficiencies",
+   "answer": "Improved acquisition costs and distribution efficiencies."
+  },
+  {
+   "id": "G-012",
+   "ticker": "GOOG",
+   "qtype": "numeric",
+   "question": "How fast did Google Cloud revenue grow last year?",
+   "quote": "an increase in Google Cloud revenues of $15.5 billion, or 36%",
+   "answer": "Up $15.5 billion, or 36%."
+  },
+  {
+   "id": "G-013",
+   "ticker": "GOOG",
+   "qtype": "numeric",
+   "question": "What were Alphabet's total revenues and growth rate?",
+   "quote": "Revenues were $402.8 billion, an increase of 15% year over year",
+   "answer": "$402.8 billion, up 15%."
+  },
+  {
+   "id": "G-014",
+   "ticker": "FOX",
+   "qtype": "factual",
+   "question": "Why did Fox's operating expenses increase in fiscal 2025?",
+   "quote": "Operating expenses increased $1.4 billion or 16% for fiscal 2025, as compared to fiscal 2024, primarily due to the approximately $1 billion impact of higher sports programming rights amortization and production costs driven by higher NFL costs",
+   "answer": "Higher sports rights amortization and production costs, mainly NFL."
+  },
+  {
+   "id": "G-015",
+   "ticker": "CMS",
+   "qtype": "numeric",
+   "question": "How large an annual electric rate increase did Michigan regulators authorize for Consumers Energy in March 2025?",
+   "quote": "authorizing an annual rate increase of $176 million",
+   "answer": "$176 million."
+  },
+  {
+   "id": "G-016",
+   "ticker": "FIX",
+   "qtype": "numeric",
+   "question": "How many employees did Comfort Systems USA have at the end of 2025?",
+   "quote": "we had approximately 22,700 employees as compared to approximately 18,300 employees as of December 31, 2024",
+   "answer": "About 22,700, up from 18,300."
+  },
+  {
+   "id": "G-017",
+   "ticker": "AON",
+   "qtype": "numeric",
+   "question": "How many people does Aon employ, and in how many countries does it operate?",
+   "quote": "we employed approximately 60,000 employees and conducted our operations in more than 120 countries",
+   "answer": "About 60,000 in more than 120 countries."
+  },
+  {
+   "id": "G-018",
+   "ticker": "MOS",
+   "qtype": "numeric",
+   "question": "How many employees does Mosaic have, and how many are hourly?",
+   "quote": "We had 13,249 employees as of December 31, 2025, consisting of approximately 9,914 salaried and 3,335 hourly employees.",
+   "answer": "13,249, of whom about 3,335 are hourly."
+  },
+  {
+   "id": "G-019",
+   "ticker": "RMD",
+   "qtype": "numeric",
+   "question": "How many of ResMed's employees work in research and development?",
+   "quote": "we had approximately 10,600 employees, of which approximately 4,240 were employed in cost of sales activities including areas such as warehousing and manufacturing, 1,990 in research and development and 4,370 in sales, marketing and administration",
+   "answer": "About 1,990 of 10,600."
+  },
+  {
+   "id": "G-020",
+   "ticker": "ABNB",
+   "qtype": "numeric",
+   "question": "How many employees does Airbnb have?",
+   "quote": "As of December 31, 2025, we had approximately 8,200 employees.",
+   "answer": "About 8,200."
+  },
+  {
+   "id": "G-021",
+   "ticker": "AKAM",
+   "qtype": "numeric",
+   "question": "What share of Akamai's employees work outside the United States?",
+   "quote": "with approximately 65% of those employees located outside of the U.S.",
+   "answer": "About 65%."
+  },
+  {
+   "id": "G-022",
+   "ticker": "DPZ",
+   "qtype": "numeric",
+   "question": "How many Domino's employees support its supply chain operations?",
+   "quote": "approximately 3,200 employees supporting our U.S. and Canadian supply chain operations",
+   "answer": "About 3,200."
+  },
+  {
+   "id": "G-023",
+   "ticker": "JBL",
+   "qtype": "factual",
+   "question": "Across how many locations and countries does Jabil's workforce operate?",
+   "quote": "employees across approximately 100 locations in 30 countries",
+   "answer": "About 100 locations in 30 countries."
+  },
+  {
+   "id": "G-024",
+   "ticker": "HSY",
+   "qtype": "numeric",
+   "question": "What share of Hershey's sales goes to McLane?",
+   "quote": "approximately 27% of our consolidated net sales were made to McLane Company, Inc.",
+   "answer": "About 27%."
+  },
+  {
+   "id": "G-025",
+   "ticker": "MCK",
+   "qtype": "numeric",
+   "question": "How dependent is McKesson on its largest customer?",
+   "quote": "sales to our largest customer represented approximately 24% of our total consolidated revenues",
+   "answer": "About 24% of revenues."
+  },
+  {
+   "id": "G-026",
+   "ticker": "BR",
+   "qtype": "numeric",
+   "question": "How much of Broadridge's revenue comes from its largest client?",
+   "quote": "our largest client accounted for approximately 7% of our consolidated revenues",
+   "answer": "About 7%."
+  },
+  {
+   "id": "G-027",
+   "ticker": "FTV",
+   "qtype": "numeric",
+   "question": "What percentage of Fortive's sales were made outside the United States?",
+   "quote": "sales outside the United States accounted for approximately 44% of our total sales for the year",
+   "answer": "About 44%."
+  },
+  {
+   "id": "G-028",
+   "ticker": "SLB",
+   "qtype": "numeric",
+   "question": "How much of SLB's revenue comes from outside the US?",
+   "quote": "our non-US operations accounted for approximately 82% of our consolidated revenue in 2025",
+   "answer": "About 82%."
+  },
+  {
+   "id": "G-029",
+   "ticker": "CARR",
+   "qtype": "numeric",
+   "question": "What portion of Carrier's net sales came from parts and service?",
+   "quote": "new equipment comprised 72% and parts and service comprised 28% of our net sales",
+   "answer": "28%."
+  },
+  {
+   "id": "G-030",
+   "ticker": "CBOE",
+   "qtype": "numeric",
+   "question": "How concentrated is Cboe's customer base?",
+   "quote": "our top ten customers accounted for approximately 57% of our revenues",
+   "answer": "Top ten customers were about 57% of revenues."
+  },
+  {
+   "id": "G-031",
+   "ticker": "JBHT",
+   "qtype": "numeric",
+   "question": "What share of J.B. Hunt's revenue came from its ten largest customers?",
+   "quote": "our top 10 customers, based on revenue, accounted for approximately 33% of our revenue",
+   "answer": "About 33%."
+  },
+  {
+   "id": "G-032",
+   "ticker": "MRVL",
+   "qtype": "numeric",
+   "question": "How much of Marvell's revenue comes from customers in Asia?",
+   "quote": "Sales shipped to customers with operations in Asia represented approximately 75% of our net revenue in fiscal 2025",
+   "answer": "About 75%."
+  },
+  {
+   "id": "G-033",
+   "ticker": "MNST",
+   "qtype": "factual",
+   "question": "Which bottler is one of Monster Beverage's biggest customers?",
+   "quote": "Coca-Cola Consolidated, Inc. accounted for approximately 10% of our net sales",
+   "answer": "Coca-Cola Consolidated, about 10% of net sales."
+  },
+  {
+   "id": "G-034",
+   "ticker": "CF",
+   "qtype": "factual",
+   "question": "Who is CF Industries' largest customer?",
+   "quote": "CHS was our largest customer in 2025 and accounted for approximately 13% of our consolidated net sales.",
+   "answer": "CHS, about 13% of net sales."
+  },
+  {
+   "id": "G-035",
+   "ticker": "MCHP",
+   "qtype": "numeric",
+   "question": "What share of Microchip's sales goes through distributors?",
+   "quote": "Sales to distributors accounted for approximately 45% of our net sales in fiscal 2025",
+   "answer": "About 45%."
+  },
+  {
+   "id": "G-036",
+   "ticker": "KHC",
+   "qtype": "numeric",
+   "question": "How much of Kraft Heinz's sales come from Walmart?",
+   "quote": "Our largest customer, Walmart Inc., represented approximately 21% of our net sales in 2025, 2024, and 2023.",
+   "answer": "About 21%."
+  },
+  {
+   "id": "G-037",
+   "ticker": "APTV",
+   "qtype": "numeric",
+   "question": "How concentrated are Aptiv's sales among its largest customers?",
+   "quote": "Our ten largest customers accounted for approximately 56% of our total net sales",
+   "answer": "Top ten customers were about 56%."
+  },
+  {
+   "id": "G-038",
+   "ticker": "PNR",
+   "qtype": "numeric",
+   "question": "How much of Pentair's sales come from its single largest customer?",
+   "quote": "Our net sales to our largest customer represented approximately 18% of our consolidated net sales in 2025.",
+   "answer": "About 18%."
+  },
+  {
+   "id": "G-039",
+   "ticker": "ADI",
+   "qtype": "numeric",
+   "question": "What portion of Analog Devices' revenue is sold through distributors?",
+   "quote": "Sales to third-party distributors accounted for approximately 56% of our revenue",
+   "answer": "About 56%."
+  },
+  {
+   "id": "G-040",
+   "ticker": "COR",
+   "qtype": "numeric",
+   "question": "How much of Cencora's revenue comes from Walgreens?",
+   "quote": "Walgreens and Boots together accounted for approximately 25% of our revenue in fiscal 2025",
+   "answer": "About 25% (with Boots)."
+  },
+  {
+   "id": "G-041",
+   "ticker": "DLR",
+   "qtype": "factual",
+   "question": "How much of Digital Realty's revenue comes from data centers it leases rather than owns?",
+   "quote": "These leased buildings accounted for approximately 14% of our total revenue",
+   "answer": "About 14%."
+  },
+  {
+   "id": "G-042",
+   "ticker": "IDXX",
+   "qtype": "numeric",
+   "question": "What share of IDEXX's revenue is recurring diagnostic revenue?",
+   "quote": "recurring diagnostic revenue, which is both highly durable and profitable, accounted for approximately 79% of our consolidated revenue",
+   "answer": "About 79%."
+  },
+  {
+   "id": "G-043",
+   "ticker": "CIEN",
+   "qtype": "numeric",
+   "question": "How much of Ciena's revenue comes from its largest cloud customer?",
+   "quote": "a cloud provider customer accounted for approximately 18% of our revenue",
+   "answer": "About 18%."
+  },
+  {
+   "id": "G-044",
+   "ticker": "LH",
+   "qtype": "factual",
+   "question": "How is Labcorp's revenue split between its two segments?",
+   "quote": "In 2025 and 2024, Dx and BLS contributed approximately 78% and 22%, respectively, of Revenues to the Company.",
+   "answer": "Diagnostics about 78%, Biopharma Laboratory Services about 22%."
+  },
+  {
+   "id": "G-045",
+   "ticker": "EXE",
+   "qtype": "factual",
+   "question": "Where are Expand Energy's natural gas operations located?",
+   "quote": "Our operations are located in Louisiana and Texas in the Haynesville and Bossier Shales",
+   "answer": "Haynesville/Bossier (LA, TX) and the Marcellus/Utica in Appalachia."
+  },
+  {
+   "id": "G-046",
+   "ticker": "RSG",
+   "qtype": "numeric",
+   "question": "How many transfer stations does Republic Services operate?",
+   "quote": "We own or operate 255 transfer stations.",
+   "answer": "255."
+  },
+  {
+   "id": "G-047",
+   "ticker": "GWW",
+   "qtype": "factual",
+   "question": "What are Grainger's reportable segments?",
+   "quote": "Grainger's two reportable segments are High-Touch Solutions North America (High-Touch Solutions N.A.) and Endless Assortment.",
+   "answer": "High-Touch Solutions N.A. and Endless Assortment."
+  },
+  {
+   "id": "G-048",
+   "ticker": "IFF",
+   "qtype": "numeric",
+   "question": "How much of IFF's sales come from its 25 largest customers?",
+   "quote": "our 25 largest customers, a majority of which were multinational consumer products companies, collectively accounted for approximately 32% of our sales",
+   "answer": "About 32%."
+  }
+ ]
+}
