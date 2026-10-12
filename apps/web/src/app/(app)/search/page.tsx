@@ -62,7 +62,7 @@ export default async function SearchPage({
       <PageHeader
         eyebrow="Natural-language search"
         title="Ask the filings a question"
-        lead="Plain English over real SEC 10-K filings. Each result is a source passage, with the chunk it came from."
+        lead="Ask in plain English. You get a short answer with its sources from real SEC 10-K filings, and you can open “How we got there” to see every step."
       />
       <ViewSwitch view={view} />
       <RetrievalLab configs={configs} initial={initial} />

@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
+async function openContext(page: import("@playwright/test").Page) {
+  const how = page.getByTestId("how");
+  if ((await how.getAttribute("open")) === null) await how.locator("summary").first().click();
+  const step = page.locator("#how-context details");
+  if ((await step.getAttribute("open")) === null) await step.locator("summary").click();
+}
+
 async function openOptions(page: import("@playwright/test").Page) {
   const d = page.locator("details", { hasText: "Options:" });
   if ((await d.getAttribute("open")) === null) await d.locator("summary").click();
@@ -39,7 +46,9 @@ test("search returns ranked, highlighted passages with fusion ranks and timings"
   const first = page.getByTestId("hit").first();
   await expect(first).toContainText(/tariff/i);
   await expect(first.locator("mark.term").first()).toBeVisible();
-  await expect(first).toContainText(/vector \d+/);
+  await expect(first).toContainText(/Matched your (words|meaning)/);
+  await first.getByText("How it was found").click();
+  await expect(first).toContainText("Meaning match rank");
   await expect(page.getByTestId("timings")).toContainText("total");
   expect(page.url()).toContain("q=How");
   expect(errors).toEqual([]);
@@ -59,7 +68,7 @@ test("filters restrict results to the chosen fiscal year", async ({ page }) => {
 test("keyword mode finds passages by their words", async ({ page }) => {
   await page.goto("/search");
   await openOptions(page);
-  await page.getByRole("group", { name: "Retrieval mode" }).getByRole("button", { name: "Keyword" }).click();
+  await page.getByRole("group", { name: "Retrieval mode" }).getByRole("button", { name: "Words" }).click();
   await search(page, "cybersecurity incident ransomware");
   await expect(page.getByTestId("hit").first()).toContainText(/cyber/i);
 });
@@ -69,7 +78,7 @@ test("context expansion adds neighbouring blocks and never exceeds the budget", 
   await openOptions(page);
   await page.getByRole("group", { name: "Token budget" }).getByRole("button", { name: "2K" }).click();
   await search(page, "How do tariffs affect gross margin?");
-  await page.getByRole("tab", { name: /Context/ }).click();
+  await openContext(page);
   const used = async () => {
     const label = await page.getByTestId("budget-bar").getByRole("img").getAttribute("aria-label");
     const m = label?.match(/uses (\d+) of (\d+) tokens/);
@@ -79,14 +88,13 @@ test("context expansion adds neighbouring blocks and never exceeds the budget", 
   const staticSpans = await page.locator('[data-testid="context-run"]').count();
   expect(staticUse.used).toBeLessThanOrEqual(staticUse.budget);
 
-  await page.getByRole("tab", { name: /Ranked units/ }).click();
   await openOptions(page);
-  await page.getByRole("button", { name: "Expand" }).click();
+  await page.getByRole("button", { name: "Add surrounding text" }).click();
   await openOptions(page);
   await page.getByRole("group", { name: "Neighbour expansion" }).getByRole("button", { name: "1" }).click();
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await page.waitForSelector('[data-testid="hit"]');
-  await page.getByRole("tab", { name: /Context/ }).click();
+  await openContext(page);
   const expanded = await used();
   expect(expanded.used).toBeLessThanOrEqual(expanded.budget);
   expect(expanded.used).toBeGreaterThanOrEqual(staticUse.used);
@@ -121,6 +129,7 @@ test("explorer draws chunk boundaries, compares two layouts and reports answer-s
 test("explorer highlights a passage opened from a search hit", async ({ page }) => {
   await page.goto("/search");
   await search(page, "How do tariffs affect gross margin?");
+  await page.getByTestId("hit").first().getByText("How it was found").click();
   await page.getByTestId("hit").first().getByRole("link", { name: /Open in Explorer/ }).click();
   await expect(page.locator(".hlspan").first()).toBeVisible();
 });

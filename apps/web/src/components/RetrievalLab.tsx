@@ -19,6 +19,8 @@ import type {
   SearchHit,
 } from "@/lib/types";
 import { AnswerPanel, type AnswerState } from "./AnswerPanel";
+import { HowWeGotThere, type SearchSettings } from "./HowWeGotThere";
+import { SourceCard } from "./SourceCard";
 import { BudgetBar } from "./BudgetBar";
 import { Passage } from "./Passage";
 import { StrategyDot } from "./ui";
@@ -113,68 +115,52 @@ function Toggle<T extends string | number>({
   );
 }
 
-function HitCard({
-  hit,
-  rank,
-  terms,
-}: {
-  hit: SearchHit;
-  rank: number;
-  terms: string[];
-}) {
+/** Every number behind the ranking, one row per passage (shown in How we got there, step 3). */
+function RankedTable({ hits }: { hits: SearchHit[] }) {
   return (
-    <article
-      className="card card-pad rise"
-      data-testid="hit"
-      style={{ animationDelay: `${Math.min(rank, 8) * 30}ms` }}
-    >
-      <header className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span className="display tnum flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line-2 bg-surface-2 text-[15px]">
-          {rank}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 text-[13.5px]">
-            <strong>{hit.ticker}</strong>
-            <span className="text-muted">FY{hit.fiscal_year}</span>
-            {hit.item && (
-              <span className="text-ink-2">
-                Item {hit.item} · {ITEM_LABELS[hit.item] ?? ""}
-              </span>
-            )}
-          </div>
-          {hit.heading && (
-            <div className="truncate text-[12.5px] text-muted">
-              {hit.heading}
-            </div>
-          )}
-        </div>
-        <Link
-          href={`/explorer/${hit.canonical_document_id}?hl=${hit.start}-${hit.end}`}
-          className="inline-flex items-center gap-1 text-[12.5px] font-medium text-accent hover:underline"
-        >
-          Open in Explorer <ArrowUpRight size={13} />
-        </Link>
-      </header>
-      <Passage text={hit.text} terms={terms} />
-      <footer className="tnum mt-3.5 flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-3 text-[12px] text-muted">
-        <span title="Reciprocal-rank-fusion score">
-          score {hit.score.toFixed(4)}
-        </span>
-        <span title="Rank in the vector (embedding) list">
-          vector {hit.vector_rank ?? "—"}
-        </span>
-        <span title="Rank in the keyword list">
-          keyword {hit.keyword_rank ?? "—"}
-        </span>
-        <span title="Cosine similarity">
-          sim {hit.similarity != null ? hit.similarity.toFixed(3) : "—"}
-        </span>
-        <span>{int(hit.tokens)} tokens</span>
-        <span>
-          chars {int(hit.start)}–{int(hit.end)}
-        </span>
-      </footer>
-    </article>
+    <div className="overflow-x-auto rounded-lg border border-line">
+      <table className="tnum w-full text-[12.5px]">
+        <thead className="bg-surface-2 text-left text-muted">
+          <tr>
+            <th className="px-3 py-1.5 font-semibold">#</th>
+            <th className="px-3 py-1.5 font-semibold">Passage</th>
+            <th
+              className="px-3 py-1.5 text-right font-semibold"
+              title="Reciprocal-rank-fusion score"
+            >
+              Combined score
+            </th>
+            <th className="px-3 py-1.5 text-right font-semibold">Word rank</th>
+            <th className="px-3 py-1.5 text-right font-semibold">
+              Meaning rank
+            </th>
+            <th className="px-3 py-1.5 text-right font-semibold">Similarity</th>
+            <th className="px-3 py-1.5 text-right font-semibold">Tokens</th>
+          </tr>
+        </thead>
+        <tbody>
+          {hits.map((h, i) => (
+            <tr key={h.unit_id} className="border-t border-line">
+              <td className="px-3 py-1.5 text-muted">{i + 1}</td>
+              <td className="px-3 py-1.5">
+                <span className="font-medium">{h.ticker}</span> FY
+                {h.fiscal_year}
+                {h.item ? ` · Item ${h.item}` : ""}
+              </td>
+              <td className="px-3 py-1.5 text-right">{h.score.toFixed(4)}</td>
+              <td className="px-3 py-1.5 text-right">
+                {h.keyword_rank ?? "—"}
+              </td>
+              <td className="px-3 py-1.5 text-right">{h.vector_rank ?? "—"}</td>
+              <td className="px-3 py-1.5 text-right">
+                {h.similarity != null ? h.similarity.toFixed(3) : "—"}
+              </td>
+              <td className="px-3 py-1.5 text-right">{int(h.tokens)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -339,16 +325,15 @@ export function RetrievalLab({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RetrieveResponse | null>(null);
-  const [searched, setSearched] = useState<{
-    q: string;
-    budget: number;
-  } | null>(null);
-  const [tab, setTab] = useState<"units" | "context">("units");
+  const [searched, setSearched] = useState<SearchSettings | null>(null);
+  const [howOpen, setHowOpen] = useState(false);
+  const [ctxOpen, setCtxOpen] = useState(false);
   const [withAnswer, setWithAnswer] = useState(true);
   const [answer, setAnswer] = useState<AnswerState | null>(null);
 
   function cite(n: number) {
-    setTab("context");
+    setHowOpen(true);
+    setCtxOpen(true);
     window.setTimeout(() => {
       const el = document.getElementById(`src-${n}`);
       if (!el) return;
@@ -358,7 +343,7 @@ export function RetrievalLab({
     }, 60);
   }
 
-  const terms = useMemo(() => queryTerms(searched?.q ?? ""), [searched]);
+  const terms = useMemo(() => queryTerms(searched?.question ?? ""), [searched]);
 
   /** Search and stream Claude's answer: one "retrieval" line, then text deltas, then "done". */
   async function streamAnswer(body: RetrieveRequest) {
@@ -393,7 +378,6 @@ export function RetrievalLab({
         };
         if (ev.type === "retrieval") {
           setResult(ev as unknown as RetrieveResponse);
-          setTab("units");
           update({ sources: (ev.sources as AnswerState["sources"]) ?? [] });
         } else if (ev.type === "text")
           update({ text: current.text + (ev.text as string) });
@@ -450,9 +434,20 @@ export function RetrievalLab({
         if (!res.ok)
           throw new Error(data.error ?? `Request failed (${res.status})`);
         setResult(data);
-        setTab("units");
       }
-      setSearched({ q, budget });
+      const cfg = readySets.find((x) => x.id === setId);
+      setSearched({
+        question: q,
+        mode,
+        k,
+        policy,
+        budget,
+        neighbor,
+        parent,
+        configLabel: cfg
+          ? `${chunkerById.get(cfg.chunker_version_id)?.label ?? "?"} · ${describeConfig(cfg.chunker_version_id)}`
+          : "?",
+      });
       const sp = new URLSearchParams({
         q,
         set: setId,
@@ -540,12 +535,12 @@ export function RetrievalLab({
         </label>
         <details className="rounded-lg border border-line px-4 py-3">
           <summary className="cursor-pointer select-none text-[13px] font-semibold text-ink-2">
-            Options: chunking configuration, retrieval mode, filters, context
+            Options: how to search, filters, what the AI reads
           </summary>
           <div className="mt-5 grid gap-7 md:grid-cols-2 xl:grid-cols-4">
             <div>
               <label className="label" htmlFor="cfg">
-                Chunking configuration
+                Search index (how the filings were chunked)
               </label>
               <select
                 id="cfg"
@@ -584,20 +579,20 @@ export function RetrievalLab({
 
             <div className="space-y-3">
               <div>
-                <span className="label">Retrieval</span>
+                <span className="label">Match by</span>
                 <Seg<Mode>
                   label="Retrieval mode"
                   value={mode}
                   onChange={setMode}
                   options={[
-                    { value: "keyword", label: "Keyword" },
-                    { value: "vector", label: "Vector" },
-                    { value: "hybrid", label: "Hybrid" },
+                    { value: "keyword", label: "Words" },
+                    { value: "vector", label: "Meaning" },
+                    { value: "hybrid", label: "Both" },
                   ]}
                 />
               </div>
               <div>
-                <span className="label">Units retrieved (k)</span>
+                <span className="label">Passages to find</span>
                 <Seg<number>
                   label="k"
                   value={k}
@@ -612,19 +607,19 @@ export function RetrievalLab({
 
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-muted">
-                <SlidersHorizontal size={13} /> Context construction
+                <SlidersHorizontal size={13} /> What the AI reads
               </div>
               <Seg<"static" | "expand">
                 label="Context policy"
                 value={policy}
                 onChange={setPolicy}
                 options={[
-                  { value: "static", label: "Static" },
-                  { value: "expand", label: "Expand" },
+                  { value: "static", label: "Matches only" },
+                  { value: "expand", label: "Add surrounding text" },
                 ]}
               />
               <div>
-                <span className="label">Token budget</span>
+                <span className="label">Reading budget (tokens)</span>
                 <Seg<number>
                   label="Token budget"
                   value={budget}
@@ -643,7 +638,7 @@ export function RetrievalLab({
                 aria-disabled={policy === "static"}
               >
                 <div>
-                  <span className="label">± neighbours</span>
+                  <span className="label">Nearby paragraphs</span>
                   <Seg<number>
                     label="Neighbour expansion"
                     value={neighbor}
@@ -655,7 +650,7 @@ export function RetrievalLab({
                   />
                 </div>
                 <div>
-                  <span className="label">Parent levels</span>
+                  <span className="label">Wider section levels</span>
                   <Seg<number>
                     label="Parent expansion"
                     value={parent}
@@ -720,10 +715,10 @@ export function RetrievalLab({
                   className="mt-[3px] h-4 w-4 accent-[var(--accent)]"
                 />
                 <span>
-                  Exact vector search
+                  Check every passage for meaning (exact search)
                   <span className="block text-[12px] text-muted">
-                    Full scan instead of the approximate index. Slower; no
-                    approximation error.
+                    Slower, but never misses a close match the fast index would
+                    skip.
                   </span>
                 </span>
               </label>
@@ -755,71 +750,11 @@ export function RetrievalLab({
             </p>
           </div>
         )}
-        {result && (
+        {result && searched && (
           <>
-            <div
-              className="rise mb-5 flex flex-wrap items-center gap-x-5 gap-y-2"
-              data-testid="timings"
-            >
-              <div className="seg" role="tablist" aria-label="Result view">
-                <button
-                  role="tab"
-                  aria-selected={tab === "units"}
-                  onClick={() => setTab("units")}
-                  type="button"
-                >
-                  Ranked units{" "}
-                  <span className="tnum ml-1 text-muted">
-                    {result.hits.length}
-                  </span>
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={tab === "context"}
-                  onClick={() => setTab("context")}
-                  type="button"
-                >
-                  Context{" "}
-                  <span className="tnum ml-1 text-muted">
-                    {result.context.length}
-                  </span>
-                </button>
-              </div>
-              <dl className="tnum flex flex-wrap gap-x-5 text-[12.5px] text-muted">
-                {result.timings.embed_ms != null && (
-                  <div className="flex gap-1.5">
-                    <dt>embed</dt>
-                    <dd className="text-ink-2">
-                      {Math.round(result.timings.embed_ms)} ms
-                    </dd>
-                  </div>
-                )}
-                <div className="flex gap-1.5">
-                  <dt>search</dt>
-                  <dd className="text-ink-2">
-                    {Math.round(result.timings.search_ms)} ms
-                  </dd>
-                </div>
-                <div className="flex gap-1.5">
-                  <dt>context</dt>
-                  <dd className="text-ink-2">
-                    {Math.round(result.timings.context_ms)} ms
-                  </dd>
-                </div>
-                <div className="flex gap-1.5">
-                  <dt>total</dt>
-                  <dd className="font-medium text-ink">
-                    {Math.round(result.timings.total_ms)} ms
-                  </dd>
-                </div>
-              </dl>
-              {result.fixture && (
-                <span className="chip">fixture embedder, not gte-small</span>
-              )}
-            </div>
             {result.keyword_query && (
               <p
-                className="rise -mt-2 mb-4 text-[13px] text-ink-2"
+                className="rise mb-4 text-[13px] text-ink-2"
                 data-testid="keyword-query"
               >
                 Spelling corrected, searched for:{" "}
@@ -828,27 +763,48 @@ export function RetrievalLab({
                 </span>
               </p>
             )}
+            <HowWeGotThere
+              settings={searched}
+              result={result}
+              answer={answer}
+              open={howOpen}
+              onOpenChange={setHowOpen}
+              contextOpen={ctxOpen}
+              onContextOpenChange={setCtxOpen}
+              rankedTable={<RankedTable hits={result.hits} />}
+              contextView={
+                <ContextView
+                  spans={result.context}
+                  hits={result.hits}
+                  terms={terms}
+                  budget={searched.budget}
+                />
+              }
+            />
 
             {result.hits.length === 0 ? (
               <div className="card card-pad border-dashed">
                 <div className="font-semibold">No passages matched</div>
                 <p className="mt-1 text-[14px] text-ink-2">
-                  Try broader wording, a different mode, or remove filters.
+                  Try broader wording, or remove filters under Options.
                 </p>
               </div>
-            ) : tab === "units" ? (
-              <div className="space-y-4" data-testid="hits">
-                {result.hits.map((h, i) => (
-                  <HitCard key={h.unit_id} hit={h} rank={i + 1} terms={terms} />
-                ))}
-              </div>
             ) : (
-              <ContextView
-                spans={result.context}
-                hits={result.hits}
-                terms={terms}
-                budget={searched?.budget ?? budget}
-              />
+              <>
+                <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.1em] text-muted">
+                  Sources · {result.hits.length} passages
+                </h2>
+                <div className="space-y-4" data-testid="hits">
+                  {result.hits.map((h, i) => (
+                    <SourceCard
+                      key={h.unit_id}
+                      hit={h}
+                      rank={i + 1}
+                      terms={terms}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </>
         )}
