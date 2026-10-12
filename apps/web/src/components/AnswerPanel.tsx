@@ -172,7 +172,7 @@ export function AnswerPanel({
           {answer.meta.cost_usd != null &&
             ` · $${answer.meta.cost_usd.toFixed(4)}`}{" "}
           · {(answer.meta.ms / 1000).toFixed(1)} s. Written only from the
-          passages listed under Context.
+          passages in “How we got there”, step 4.
         </p>
       )}
     </section>

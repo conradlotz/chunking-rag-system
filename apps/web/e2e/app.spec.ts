@@ -116,6 +116,8 @@ test("explorer draws chunk boundaries, compares two layouts and reports answer-s
   await page.locator('[data-testid="filings"] a').first().click();
   await expect(page.getByRole("link", { name: /View original at sec\.gov/ })).toHaveAttribute("href", /^https:\/\/www\.sec\.gov\//);
   await page.getByRole("tab", { name: /Item 1A/ }).click();
+  expect(await page.locator(".cb").count()).toBe(0); // plain reading view by default
+  await page.getByLabel(/Show how it was cut into passages/).check();
   await page.waitForSelector(".cb");
   const before = await page.locator('.cb[data-side="B"]').count();
   expect(before).toBe(0);
@@ -150,6 +152,7 @@ test("benchmarks show the size curve, the cost frontier and the table", async ({
 });
 
 test("method page explains the four costs", async ({ page }) => {
+  // (also opens with the plain five-step walkthrough)
   await page.goto("/method");
   for (const t of ["Bandwidth", "Local embedding compute", "Storage", "Paid generation"]) await expect(page.getByRole("heading", { name: t })).toBeVisible();
 });

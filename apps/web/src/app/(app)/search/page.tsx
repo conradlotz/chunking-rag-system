@@ -77,7 +77,7 @@ function ViewSwitch({ view }: { view: "search" | "rank" }) {
         href="/search"
         aria-current={view === "search" ? "page" : undefined}
       >
-        Search passages
+        Ask
       </Link>
       <Link
         href="/search?view=rank"

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { LogOut } from "lucide-react";
 import { signOut } from "@/app/login/actions";
 import { Nav } from "./Nav";
@@ -8,11 +9,35 @@ function Mark() {
     <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
       <rect width="32" height="32" rx="8" fill="var(--ink)" />
       <rect x="6" y="7" width="12" height="3.6" rx="1.8" fill="var(--s1)" />
-      <rect x="20" y="7" width="6" height="3.6" rx="1.8" fill="var(--paper)" opacity=".35" />
-      <rect x="6" y="14.2" width="5" height="3.6" rx="1.8" fill="var(--paper)" opacity=".35" />
+      <rect
+        x="20"
+        y="7"
+        width="6"
+        height="3.6"
+        rx="1.8"
+        fill="var(--paper)"
+        opacity=".35"
+      />
+      <rect
+        x="6"
+        y="14.2"
+        width="5"
+        height="3.6"
+        rx="1.8"
+        fill="var(--paper)"
+        opacity=".35"
+      />
       <rect x="13" y="14.2" width="13" height="3.6" rx="1.8" fill="var(--s2)" />
       <rect x="6" y="21.4" width="9" height="3.6" rx="1.8" fill="var(--s3)" />
-      <rect x="17" y="21.4" width="9" height="3.6" rx="1.8" fill="var(--paper)" opacity=".35" />
+      <rect
+        x="17"
+        y="21.4"
+        width="9"
+        height="3.6"
+        rx="1.8"
+        fill="var(--paper)"
+        opacity=".35"
+      />
     </svg>
   );
 }
@@ -34,23 +59,31 @@ export function Shell({
             <Mark />
             <div className="leading-tight">
               <div className="display text-[19px]">Chunking Lab</div>
-              <div className="text-[11px] text-muted">SEC 10-K retrieval research</div>
+              <div className="text-[11px] text-muted">
+                SEC 10-K retrieval research
+              </div>
             </div>
           </div>
           <div className="lg:hidden">
             <ThemeToggle />
           </div>
         </div>
-        <Nav />
+        <Suspense fallback={null}>
+          <Nav />
+        </Suspense>
         <div className="mt-auto hidden space-y-3 px-2 pt-6 lg:block">
           {fixture && (
             <div className="rounded-lg border border-line-2 bg-surface p-2.5 text-[12px] leading-snug text-ink-2">
-              <span className="font-semibold text-ink">Fixture mode.</span> Local development data. Not the hosted corpus.
+              <span className="font-semibold text-ink">Fixture mode.</span>{" "}
+              Local development data. Not the hosted corpus.
             </div>
           )}
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <div className="truncate text-[12px] font-medium text-ink-2" title={email ?? ""}>
+              <div
+                className="truncate text-[12px] font-medium text-ink-2"
+                title={email ?? ""}
+              >
                 {email ?? "Not signed in"}
               </div>
             </div>

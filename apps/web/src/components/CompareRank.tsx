@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowUpRight, LoaderCircle, Search } from "lucide-react";
+import { ArrowUpRight, ChevronDown, LoaderCircle, Search } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { compact } from "@/lib/format";
 import type { RankMetric, RankOptions, RankResult, RankRow } from "@/lib/types";
 
@@ -55,6 +55,13 @@ const METRICS: {
     explain: "operating income (loss) reported",
   },
 ];
+
+const PARTS: Partial<Record<RankMetric, [string, string]>> = {
+  net_margin: ["Net income", "Revenue"],
+  operating_margin: ["Operating income", "Revenue"],
+  gross_margin: ["Gross profit", "Revenue"],
+  revenue_growth: ["Revenue this year", "Revenue the year before"],
+};
 
 const fmt = (v: number | null, kind: "ratio" | "usd") =>
   v == null
@@ -114,6 +121,7 @@ export function CompareRank({ options }: { options: RankOptions | null }) {
   const [result, setResult] = useState<RankResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openRow, setOpenRow] = useState<string | null>(null);
   const spec = METRICS.find((m) => m.value === metric)!;
   const ready = !!options && options.facts > 0;
 
@@ -275,8 +283,9 @@ export function CompareRank({ options }: { options: RankOptions | null }) {
               <div className="text-[12.5px] text-muted">
                 {spec.explain}, from the figures each company reported to the
                 SEC. Ranked {result.companies_ranked} of{" "}
-                {result.companies_in_scope} companies; the rest did not report
-                the figures needed.
+                {result.companies_in_scope} companies (the rest did not report
+                the figures needed). Click a row to see how its number was
+                calculated.
               </div>
             </div>
             {loading && (
@@ -293,62 +302,135 @@ export function CompareRank({ options }: { options: RankOptions | null }) {
                 <tr className="text-left text-[11.5px] uppercase tracking-[0.08em] text-muted">
                   <th className="w-12 px-5 py-2 font-semibold">#</th>
                   <th className="px-2 py-2 font-semibold">Company</th>
-                  <th className="hidden px-2 py-2 font-semibold lg:table-cell">
-                    Sector
-                  </th>
                   <th className="px-2 py-2 text-right font-semibold">
                     {spec.label}
                   </th>
-                  <th className="hidden w-[24%] px-3 py-2 md:table-cell" />
-                  <th className="px-5 py-2 text-right font-semibold">Source</th>
+                  <th className="hidden w-[28%] px-3 py-2 md:table-cell" />
+                  <th className="px-5 py-2" />
                 </tr>
               </thead>
               <tbody>
-                {result.rows.map((r) => (
-                  <tr
-                    key={r.cik}
-                    className="border-t border-line hover:bg-surface-2"
-                    title={
-                      r.numerator != null && r.denominator != null
-                        ? `${r.name}: ${fmt(r.value, spec.kind)} = $${compact(r.numerator)} / $${compact(r.denominator)} · period ending ${r.period_end}`
-                        : `${r.name}: ${fmt(r.value, spec.kind)} · period ending ${r.period_end}`
-                    }
-                  >
-                    <td className="tnum px-5 py-2.5 text-muted">{r.rank}</td>
-                    <td className="px-2 py-2.5">
-                      <span className="font-semibold">{r.ticker}</span>{" "}
-                      <span className="text-ink-2">{r.name}</span>
-                    </td>
-                    <td className="hidden px-2 py-2.5 text-ink-2 lg:table-cell">
-                      {r.division}
-                    </td>
-                    <td className="tnum px-2 py-2.5 text-right font-medium">
-                      {fmt(r.value, spec.kind)}
-                    </td>
-                    <td className="hidden px-3 py-2.5 md:table-cell">
-                      <ValueBar value={r.value} min={min} max={max} />
-                    </td>
-                    <td className="px-5 py-2.5 text-right">
-                      <span className="inline-flex items-center gap-3">
-                        <Link
-                          href={`/search?q=${encodeURIComponent(`What drove ${r.name}'s ${spec.label.toLowerCase()}?`)}&t=${r.ticker}`}
-                          className="inline-flex items-center gap-1 text-[12.5px] font-medium text-accent hover:underline"
-                          title="Search this company's filing for the explanation"
-                        >
-                          <Search size={12} /> Why?
-                        </Link>
-                        <a
-                          href={filingUrl(r)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-[12.5px] text-ink-2 hover:text-ink"
-                        >
-                          10-K <ArrowUpRight size={12} />
-                        </a>
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {result.rows.map((r) => {
+                  const open = openRow === r.cik;
+                  const parts = PARTS[metric];
+                  return (
+                    <Fragment key={r.cik}>
+                      <tr
+                        className="cursor-pointer border-t border-line hover:bg-surface-2"
+                        onClick={() => setOpenRow(open ? null : r.cik)}
+                        aria-expanded={open}
+                        title={`${r.name}: ${fmt(r.value, spec.kind)}. Click to see how it was calculated.`}
+                      >
+                        <td className="tnum px-5 py-2.5 text-muted">
+                          {r.rank}
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <span className="font-semibold">{r.ticker}</span>{" "}
+                          <span className="text-ink-2">{r.name}</span>
+                        </td>
+                        <td className="tnum px-2 py-2.5 text-right font-medium">
+                          {fmt(r.value, spec.kind)}
+                        </td>
+                        <td className="hidden px-3 py-2.5 md:table-cell">
+                          <ValueBar value={r.value} min={min} max={max} />
+                        </td>
+                        <td className="px-5 py-2.5 text-right">
+                          <span className="inline-flex items-center gap-3">
+                            <Link
+                              href={`/search?q=${encodeURIComponent(`What drove ${r.name}'s ${spec.label.toLowerCase()}?`)}&t=${r.ticker}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 text-[12.5px] font-medium text-accent hover:underline"
+                              title="Search this company's filing for the explanation"
+                            >
+                              <Search size={12} /> Why?
+                            </Link>
+                            <ChevronDown
+                              size={14}
+                              className={`text-muted transition ${open ? "rotate-180" : ""}`}
+                              aria-hidden
+                            />
+                          </span>
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr className="bg-surface-2" data-testid="rank-detail">
+                          <td />
+                          <td
+                            colSpan={4}
+                            className="px-2 pb-4 pt-1 text-[13px] text-ink-2"
+                          >
+                            <div className="mb-1.5 font-medium text-ink">
+                              How this was calculated
+                            </div>
+                            {parts &&
+                            r.numerator != null &&
+                            r.denominator != null ? (
+                              <p className="tnum">
+                                {parts[0]} ${compact(r.numerator)}{" "}
+                                {metric === "revenue_growth" ? "÷" : "÷"}{" "}
+                                {parts[1]} ${compact(r.denominator)}
+                                {metric === "revenue_growth"
+                                  ? " − 1"
+                                  : ""} ={" "}
+                                <span className="font-medium text-ink">
+                                  {fmt(r.value, spec.kind)}
+                                </span>
+                              </p>
+                            ) : (
+                              <p className="tnum">
+                                {spec.label} as reported:{" "}
+                                <span className="font-medium text-ink">
+                                  {fmt(r.value, spec.kind)}
+                                </span>
+                              </p>
+                            )}
+                            <dl className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+                              <div>
+                                <dt className="inline text-muted">
+                                  Fiscal year ended:{" "}
+                                </dt>
+                                <dd className="inline">{r.period_end}</dd>
+                              </div>
+                              <div>
+                                <dt className="inline text-muted">Sector: </dt>
+                                <dd className="inline">
+                                  {r.division}
+                                  {r.industry ? ` (${r.industry})` : ""}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt className="inline text-muted">Source: </dt>
+                                <dd className="inline">
+                                  figures the company reported to the SEC in its
+                                  10-K (XBRL data),{" "}
+                                  <a
+                                    href={filingUrl(r)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-0.5 text-accent hover:underline"
+                                  >
+                                    filing {r.accession_no}{" "}
+                                    <ArrowUpRight size={11} />
+                                  </a>
+                                </dd>
+                              </div>
+                              {r.revenue != null && metric !== "revenue" && (
+                                <div>
+                                  <dt className="inline text-muted">
+                                    Revenue that year:{" "}
+                                  </dt>
+                                  <dd className="tnum inline">
+                                    ${compact(r.revenue)}
+                                  </dd>
+                                </div>
+                              )}
+                            </dl>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           )}
