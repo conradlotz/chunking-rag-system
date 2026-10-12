@@ -291,6 +291,9 @@ def main() -> None:
                             (EMBEDDER.id, embedded_tokens, run_id, EMBEDDER.id, embed_seconds, run_id))
                 cur.execute("insert into rag.usage_ledger (category,subject,unit,quantity,ingest_run_id) values "
                             "('bandwidth','sec:total','bytes',%s,%s)", (sec.meter.total_wire(), run_id))
+                # Rebuilding the counters and the spelling vocabulary scans every passage; allow it longer than
+                # the pooler's default statement timeout.
+                cur.execute("set statement_timeout = '15min'")
                 cur.execute("select rag.refresh_stats()")
                 cur.execute("select rag.snapshot_storage(%s,%s,%s)", (run_id, "publish", loaded))
                 cur.execute("select count(*) from rag.verify_corpus()")
