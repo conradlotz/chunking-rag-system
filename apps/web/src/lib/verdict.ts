@@ -17,6 +17,9 @@ export interface Cell {
   midSentence: number | null;
   ranks: Record<string, number | null>;
   docAt5: number | null;
+  recall10: number | null;
+  searchMs: number | null;
+  embedSeconds: number | null;
 }
 
 export interface SizeRow {
@@ -72,6 +75,9 @@ function cell(p: SweepPoint): (Cell & { strategy: string; size: number }) | null
     keyword: num(extra.keyword_recall_at_5),
     midSentence: num(extra.mid_sentence_cut_rate),
     docAt5: num(extra.doc_at_5),
+    recall10: num(extra.recall_at_10),
+    searchMs: num(p.retrieval_p95_ms),
+    embedSeconds: num(extra.embed_seconds),
     ranks: (extra.per_question_rank as Record<string, number | null>) ?? {},
   };
 }

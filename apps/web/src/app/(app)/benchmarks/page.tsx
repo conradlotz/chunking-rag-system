@@ -1,4 +1,5 @@
 import { ChunkSizeAnswer } from "@/components/ChunkSizeAnswer";
+import { ExecutiveSummary } from "@/components/ExecutiveSummary";
 import { PageHeader, Section } from "@/components/ui";
 import { SweepExplorer } from "@/components/SweepExplorer";
 import { api, getSession } from "@/lib/data";
@@ -19,7 +20,15 @@ export default async function BenchmarksPage() {
       />
       {verdict && (
         <Section
-          title="What we found"
+          title="Executive summary"
+          note="Which chunk type and size work best, how fast each is, and why. Every number comes from the benchmark below."
+        >
+          <ExecutiveSummary v={verdict} />
+        </Section>
+      )}
+      {verdict && (
+        <Section
+          title="The details"
           note="The same real filings, cut eight different ways, asked the same questions with known answers."
         >
           <ChunkSizeAnswer v={verdict} />
