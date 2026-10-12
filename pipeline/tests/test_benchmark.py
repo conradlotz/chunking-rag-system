@@ -42,3 +42,16 @@ def test_judge_needs_80_percent_of_answer_in_right_filing():
     assert miss.rank is None and not miss.full_at_5
     s = summarise([out, miss])
     assert s["recall_at_5"] == 0.5 and s["mrr"] == 0.125
+
+
+def test_judge_expands_top_results_with_their_neighbours():
+    # one filing cut into four passages; the answer spans passages 1 and 2
+    chunk_doc = np.array([0, 0, 0, 0, 1])
+    chunk_span = np.array([(0, 50), (50, 100), (100, 150), (150, 200), (0, 50)])
+    tokens = np.array([10, 10, 10, 10, 10])
+    out = judge([1, 4], chunk_doc, chunk_span, tokens, 0, [(60, 140)])
+    assert out.rank is None and round(out.coverage_5, 2) == 0.5
+    # neighbours of passage 1 are 0 and 2 (same filing); passage 4's neighbour 3 is another filing's
+    assert out.expanded == (1.0, 40)
+    s = summarise([out])
+    assert s["expanded_recall"] == 1.0 and s["expanded_full_rate"] == 1.0 and s["expanded_tokens_mean"] == 40

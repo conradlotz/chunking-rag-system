@@ -37,6 +37,17 @@ from chunking_lab.telemetry import host_info
 from chunking_lab.tokenize import HFTokenizer
 
 EXPERIMENT = "chunk-size-10k"
+EXPERIMENTS = {
+    "chunk-size-10k": (
+        "Chunk size: fixed vs structure-aware",
+        "There is no universal best size. Small chunks pinpoint facts but split answers; large chunks "
+        "keep answers whole but cost more context and dilute the match. Structure-aware chunks should do "
+        "better than blind token windows at every size."),
+    "multi-sentence-10k": (
+        "Multi-sentence answers: chunk size and neighbour expansion",
+        "Answers that need several consecutive sentences favour larger structure-aware chunks, or small chunks "
+        "expanded with their neighbouring passages (find small, read big)."),
+}
 SIZES = (128, 256, 384, 480)
 CONFIGS = [("fixed", {"size": s, "overlap_pct": 0}) for s in SIZES] + [
     ("structural", {"max_tokens": s}) for s in SIZES]
@@ -140,6 +151,8 @@ class Outcome:
     doc_at_5: bool            # the right filing appears in the top 5
     context_tokens_5: int     # tokens a model would read from the top 5
     found_at_budget: dict[int, bool]
+    coverage_5: float = 0.0          # share of the answer inside the top 5
+    expanded: tuple[float, int] = (0.0, 0)  # (share of the answer, tokens) with each top-5 result's neighbours added
 
 
 def judge(ranked: list[int], chunk_doc: np.ndarray, chunk_span: np.ndarray, chunk_tokens: np.ndarray,
@@ -157,8 +170,15 @@ def judge(ranked: list[int], chunk_doc: np.ndarray, chunk_span: np.ndarray, chun
             used += int(chunk_tokens[ranked[n]])
             n += 1
         by_budget[budget] = cov(n) >= FOUND
+    # "Find small, read big": the top 5 plus the passage before and after each, within the same filing.
+    near = set()
+    for i in ranked[:5]:
+        near.update(j for j in (i - 1, i, i + 1) if 0 <= j < len(chunk_doc) and chunk_doc[j] == chunk_doc[i])
+    mine = [tuple(chunk_span[i]) for i in near if chunk_doc[i] == gold_doc]
+    expanded = (max(coverage(mine, g) for g in gold) if mine else 0.0, int(sum(chunk_tokens[i] for i in near)))
     return Outcome(rank=rank, full_at_5=cov(5) >= 0.999, doc_at_5=any(chunk_doc[i] == gold_doc for i in ranked[:5]),
-                   context_tokens_5=int(sum(chunk_tokens[i] for i in ranked[:5])), found_at_budget=by_budget)
+                   context_tokens_5=int(sum(chunk_tokens[i] for i in ranked[:5])), found_at_budget=by_budget,
+                   coverage_5=cov(5), expanded=expanded)
 
 
 def summarise(outcomes: list[Outcome]) -> dict:
@@ -176,6 +196,11 @@ def summarise(outcomes: list[Outcome]) -> dict:
         "doc_at_5": rate(o.doc_at_5 for o in outcomes),
         "context_tokens_mean": float(np.mean([o.context_tokens_5 for o in outcomes])) if n else 0.0,
         **{f"recall_at_budget_{b}": rate(o.found_at_budget[b] for o in outcomes) for b in BUDGETS},
+        "mean_coverage_5": float(np.mean([o.coverage_5 for o in outcomes])) if n else 0.0,
+        "expanded_recall": rate(o.expanded[0] >= FOUND for o in outcomes),
+        "expanded_full_rate": rate(o.expanded[0] >= 0.999 for o in outcomes),
+        "expanded_mean_coverage": float(np.mean([o.expanded[0] for o in outcomes])) if n else 0.0,
+        "expanded_tokens_mean": float(np.mean([o.expanded[1] for o in outcomes])) if n else 0.0,
     }
 
 
@@ -189,9 +214,14 @@ def main() -> None:
     ap.add_argument("--pool", type=int, default=100, help="filings searched: those holding answers plus distractors")
     ap.add_argument("--models", type=Path, default=Path("../data/models/gte-small"))
     ap.add_argument("--configs", nargs="*", help="limit to these chunker names, e.g. fixed.s256.o0")
+    ap.add_argument("--experiment", default=EXPERIMENT, choices=sorted(EXPERIMENTS))
+    ap.add_argument("--pool-questions", type=Path,
+                    help="question file whose filings seed the pool (default: --questions); keeps pools identical")
     args = ap.parse_args()
 
     spec = json.loads(args.questions.read_text())["questions"]
+    pool_spec = json.loads(args.pool_questions.read_text())["questions"] if args.pool_questions else spec
+    experiment = args.experiment
     tok_path, model_path, _ = fetch_model(args.models)
     tokenizer = HFTokenizer(tok_path)
     embedder = Embedder(tok_path, model_path)
@@ -205,7 +235,7 @@ def main() -> None:
         cur.execute(f"select d.id, d.text, c.ticker, f.accession_no from rag.canonical_documents d "
                     f"join rag.filings f on f.id = d.filing_id join rag.companies c on c.cik = f.cik {selected} "
                     f"order by c.ticker = any(%s) desc, md5(f.accession_no) limit %s",
-                    ([q["ticker"] for q in spec], args.pool))
+                    ([q["ticker"] for q in pool_spec], args.pool))
         rows = cur.fetchall()
         by_ticker = {r[2]: i for i, r in enumerate(rows)}
         missing = sorted({q["ticker"] for q in spec} - set(by_ticker))
@@ -241,17 +271,17 @@ def main() -> None:
                      json.dumps({"k": K, "found_threshold": FOUND, "candidates": CANDIDATES, "rrf_k": RRF_K,
                                  "keyword_weight": KEYWORD_WEIGHT, "budgets": list(BUDGETS),
                                  "questions": len(questions), "host": host_info()}),
-                     "Chunk size benchmark: fixed vs structure-aware chunks, gold questions, exact vector search"))
+                     f"Chunk size benchmark ({experiment}): fixed vs structure-aware chunks, gold questions"))
         run_id = cur.fetchone()[0]
         cur.execute("insert into rag.experiments (id, name, strategy, hypothesis, axes, stage, is_primary, status) "
-                    "values (%s, %s, null, %s, %s, 'screening', true, 'running') on conflict (id) do update set "
-                    "name = excluded.name, hypothesis = excluded.hypothesis, axes = excluded.axes, status = 'running'",
-                    (EXPERIMENT, "Chunk size: fixed vs structure-aware",
-                     "There is no universal best size. Small chunks pinpoint facts but split answers; large chunks "
-                     "keep answers whole but cost more context and dilute the match. Structure-aware chunks should do "
-                     "better than blind token windows at every size.",
-                     json.dumps({"strategy": ["fixed", "structural"], "size": list(SIZES), "overlap_pct": [0]})))
-        cur.execute("delete from rag.sweep_points where experiment_id = %s", (EXPERIMENT,))
+                    "values (%s, %s, null, %s, %s, 'screening', %s, 'running') on conflict (id) do update set "
+                    "name = excluded.name, hypothesis = excluded.hypothesis, axes = excluded.axes, "
+                    "is_primary = excluded.is_primary, status = 'running'",
+                    (experiment, *EXPERIMENTS[experiment],
+                     json.dumps({"strategy": ["fixed", "structural"], "size": list(SIZES), "overlap_pct": [0]}),
+                     # one primary experiment, so the sweep charts never mix two question sets
+                     experiment == EXPERIMENT))
+        cur.execute("delete from rag.sweep_points where experiment_id = %s", (experiment,))
 
         results = {}
         try:
@@ -260,20 +290,20 @@ def main() -> None:
                 if args.configs and chunker.version.name not in args.configs:
                     continue
                 _register(cur, chunker.version)
-                results[chunker.version.name] = _measure(cur, run_id, chunker, strategy, params, docs, questions,
-                                                         embedder, tokenizer, q_vecs, q_terms)
+                results[chunker.version.name] = _measure(cur, experiment, run_id, chunker, strategy, params, docs,
+                                                         questions, embedder, tokenizer, q_vecs, q_terms)
         except BaseException:
             cur.execute("update rag.benchmark_runs set status = 'failed' where id = %s", (run_id,))
             raise
 
         question_set = [{"id": q["id"], "ticker": q["ticker"], "question": q["question"], "answer": q.get("answer"),
                          "quote": q["quote"]} for q, _, _ in questions]
-        summary = {"experiment": EXPERIMENT, "configs": results, "questions": len(questions), "filings": len(docs),
+        summary = {"experiment": experiment, "configs": results, "questions": len(questions), "filings": len(docs),
                    "question_set": question_set,
                    "wall_seconds": round(time.perf_counter() - started, 1), "finished": datetime.now(UTC).isoformat()}
         cur.execute("update rag.benchmark_runs set status = 'complete', summary = %s where id = %s",
                     (json.dumps(summary), run_id))
-        cur.execute("update rag.experiments set status = 'complete' where id = %s", (EXPERIMENT,))
+        cur.execute("update rag.experiments set status = 'complete' where id = %s", (experiment,))
     print(json.dumps({k: {m: round(v, 3) for m, v in r.items() if isinstance(v, float)} for k, r in results.items()},
                      indent=1), flush=True)
 
@@ -285,7 +315,8 @@ def _has_selection(cur) -> bool:
 
 def _store_questions(cur, questions, docs, accessions) -> None:
     ids = [q["id"] for q, _, _ in questions]
-    cur.execute("delete from rag.questions where id like 'G-%%' and not (id = any(%s))", (ids,))
+    prefix = ids[0].split("-")[0] + "-%"
+    cur.execute("delete from rag.questions where id like %s and not (id = any(%s))", (prefix, ids))
     for q, i, gold in questions:
         cur.execute("insert into rag.questions (id, tier, split, qtype, question, reference_answer, answerable, origin,"
                     " author, metadata) values (%s, 'gold', 'dev', %s, %s, %s, true, 'llm_assisted', 'claude', %s) "
@@ -300,7 +331,8 @@ def _store_questions(cur, questions, docs, accessions) -> None:
                         "values (%s, %s, %s, %s, %s)", (q["id"], docs[i][0], s, e, docs[i][1].text[s:e]))
 
 
-def _measure(cur, run_id, chunker, strategy, params, docs, questions, embedder, tokenizer, q_vecs, q_terms) -> dict:
+def _measure(cur, experiment, run_id, chunker, strategy, params, docs, questions, embedder, tokenizer, q_vecs,
+             q_terms) -> dict:
     name = chunker.version.name
     t0 = time.perf_counter()
     chunk_doc, chunk_span, chunk_tokens, texts = [], [], [], []
@@ -348,7 +380,7 @@ def _measure(cur, run_id, chunker, strategy, params, docs, questions, embedder, 
     extra = {
         "questions": len(questions), "filings": len(docs),
         "recall_at_1": hybrid["recall_at_1"], "recall_at_10": hybrid["recall_at_10"], "doc_at_5": hybrid["doc_at_5"],
-        **{k: v for k, v in hybrid.items() if k.startswith("recall_at_budget")},
+        **{k: v for k, v in hybrid.items() if k.startswith(("recall_at_budget", "expanded_", "mean_coverage"))},
         "vector_recall_at_5": summarise(outcomes["vector"])["recall_at_5"],
         "keyword_recall_at_5": summarise(outcomes["keyword"])["recall_at_5"],
         "vector_mrr": summarise(outcomes["vector"])["mrr"],
@@ -358,7 +390,7 @@ def _measure(cur, run_id, chunker, strategy, params, docs, questions, embedder, 
         "chunk_seconds": round(chunk_seconds, 1), "embed_seconds": round(embed_seconds, 1),
         "per_question_rank": per_question,
     }
-    point = (EXPERIMENT, run_id, chunker.version.id, json.dumps({"strategy": strategy, **params}))
+    point = (experiment, run_id, chunker.version.id, json.dumps({"strategy": strategy, **params}))
     cur.execute("insert into rag.sweep_points (experiment_id, run_id, chunker_version_id, params, stage, recall_at_5, "
                 "mrr, answer_span_containment, full_evidence_rate, chunks, tokens_embedded, index_bytes, "
                 "context_tokens_mean, retrieval_p95_ms, extra) values (%s,%s,%s,%s,'screening',%s,%s,%s,%s,%s,%s,%s,"

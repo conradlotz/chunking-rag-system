@@ -1,0 +1,1 @@
+{"questions": "bench/multi_sentence.json", "experiment": "multi-sentence-10k", "note": "26 multi-sentence questions, same 100-filing pool, fixed vs structure-aware 128-480, with neighbour expansion"}

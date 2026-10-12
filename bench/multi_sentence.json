@@ -1,0 +1,213 @@
+{
+ "note": "Multi-sentence gold questions: each answer needs two or more consecutive sentences, copied verbatim from the company's latest 10-K.",
+ "questions": [
+  {
+   "id": "M-001",
+   "ticker": "LEN",
+   "qtype": "multi_span",
+   "question": "How did Lennar's gross margin on home sales change in 2025, and what drove the change?",
+   "quote": "Gross margins on home sales were $5.7 billion, or 17.7%, in the year ended November 30, 2025, compared to $7.5 billion, or 22.3%, in the year ended November 30, 2024. During the year ended November 30, 2025, gross margins decreased primarily due to a lower revenue per square foot and higher land costs year over year, which were partially offset by a decrease in construction costs, reflecting our continued focus on cost-saving initiatives.",
+   "answer": "Down to 17.7% from 22.3%, from lower revenue per square foot and higher land costs, partly offset by lower construction costs."
+  },
+  {
+   "id": "M-002",
+   "ticker": "PHM",
+   "qtype": "multi_span",
+   "question": "How did PulteGroup's home sale margins trend through 2025, year over year and quarter by quarter?",
+   "quote": "This is evidenced in our gross margin from home sales, which decreased to 26.3% in 2025 versus 28.9% in 2024. Additionally, gross margin from home sales decreased each quarter in 2025, from 27.5% in the first quarter of 2025 to 24.7% in the fourth quarter of 2025.",
+   "answer": "26.3% vs 28.9% for the year; falling every quarter from 27.5% to 24.7%."
+  },
+  {
+   "id": "M-003",
+   "ticker": "AMP",
+   "qtype": "multi_span",
+   "question": "What drove the growth in Ameriprise's assets under management and under administration in 2025?",
+   "quote": "Total AUM increased $127.0 billion, or 11%, to $1.3 trillion as of December 31, 2025 compared to $1.2 trillion as of December 31, 2024 due to a $96.3 billion increase in Advice & Wealth Management AUM driven by market appreciation and wrap account net inflows and an $33.2 billion increase in Asset Management AUM primarily driven by market appreciation and a favorable foreign exchange impact, partially offset by net outflows. Total Asset Under Administration increased $38.4 billion, or 12%, to $355.6 billion as of December 31, 2025 compared to the prior year primarily driven by equity market appreciation and a continued increase in third-party money market funds.",
+   "answer": "AUM +$127.0B from market appreciation and wrap inflows; AUA +$38.4B from equity markets and money market funds."
+  },
+  {
+   "id": "M-004",
+   "ticker": "MRSH",
+   "qtype": "multi_span",
+   "question": "How did Marsh's consulting business perform in 2025, in revenue and operating income?",
+   "quote": "Consulting revenue in 2025 was $9.8 billion, an increase of 7%, or 5% on an underlying basis. Operating income was $1.9 billion, compared to $1.8 billion in the prior year.",
+   "answer": "Revenue $9.8B (+7%); operating income $1.9B vs $1.8B."
+  },
+  {
+   "id": "M-005",
+   "ticker": "LMT",
+   "qtype": "multi_span",
+   "question": "Why did Lockheed Martin's product sales grow in 2025, and which programs drove the growth at MFC?",
+   "quote": "Product sales increased $3.4 billion, or 6%, in 2025 as compared to 2024. The increase was primarily attributable to higher product sales of approximately $1.7 billion at MFC, $1.0 billion at Aeronautics, and $475 million at Space. Higher product sales at MFC were due to production ramp-up on Joint Air-to-Surface Standoff Missile (JASSM), Long Range Anti-Ship Missile (LRASM) and precision fires programs.",
+   "answer": "+$3.4B, led by MFC (+$1.7B: JASSM, LRASM, precision fires), Aeronautics and Space."
+  },
+  {
+   "id": "M-006",
+   "ticker": "ORLY",
+   "qtype": "multi_span",
+   "question": "How did O'Reilly's gross profit change in 2025, and what explains the change in dollars and in margin?",
+   "quote": "Gross profit for the year ended December 31, 2025, increased 7% to $9.17 billion (or 51.6% of sales) from $8.55 billion (or 51.2% of sales) for the same period in 2024. The increase in gross profit dollars for the year ended December 31, 2025, was primarily the result of increase in comparable store sales at existing stores and sales from new stores, partially offset by prior year gross profit dollars generated from one additional day due to Leap Day. The increase in gross profit as a percentage of sales for the year ended December 31, 2025, was due to improved acquisition costs and distribution operating efficiencies, partially offset by a greater percentage of our total sales mix being generated from professional service provider customers, which carry a lower gross margin percentage than DIY sales.",
+   "answer": "Up 7% to $9.17B (51.6%): comparable and new-store sales; margin from acquisition costs and distribution efficiency, offset by professional mix."
+  },
+  {
+   "id": "M-007",
+   "ticker": "FOX",
+   "qtype": "multi_span",
+   "question": "What caused Fox's operating expenses to rise in fiscal 2025, beyond sports rights?",
+   "quote": "Operating expenses increased $1.4 billion or 16% for fiscal 2025, as compared to fiscal 2024, primarily due to the approximately $1 billion impact of higher sports programming rights amortization and production costs driven by higher NFL costs, including the broadcast of Super Bowl LIX in February 2025, and higher college football costs, including licensing costs for rights that are sublicensed, partially offset by the absence of WWE. The remaining increase of approximately $380 million was primarily due to higher digital content costs, entertainment programming rights amortization and higher newsgathering costs principally due to the 2024 presidential election.",
+   "answer": "+$1.4B: ~$1B sports (NFL, Super Bowl, college football); ~$380M digital content, entertainment and election newsgathering."
+  },
+  {
+   "id": "M-008",
+   "ticker": "FIX",
+   "qtype": "multi_span",
+   "question": "How has Comfort Systems USA's workforce changed, and how much of it is covered by collective bargaining?",
+   "quote": "Employees—As of December 31, 2025, we had approximately 22,700 employees as compared to approximately 18,300 employees as of December 31, 2024. We have collective bargaining agreements covering 9 employees.",
+   "answer": "22,700 vs 18,300; collective bargaining covers 9 employees."
+  },
+  {
+   "id": "M-009",
+   "ticker": "MOS",
+   "qtype": "multi_span",
+   "question": "Describe Mosaic's workforce, including the employees at the Miski Mayo mine.",
+   "quote": "We had 13,249 employees as of December 31, 2025, consisting of approximately 9,914 salaried and 3,335 hourly employees. This includes approximately 719 salaried employees at the Miski Mayo Mine, of which we own 75% and its results are consolidated within our results of operations.",
+   "answer": "13,249 (9,914 salaried, 3,335 hourly), including ~719 at Miski Mayo (75% owned)."
+  },
+  {
+   "id": "M-010",
+   "ticker": "RMD",
+   "qtype": "multi_span",
+   "question": "How is ResMed's workforce split by function and by region?",
+   "quote": "As of June 30, 2025, we had approximately 10,600 employees, of which approximately 4,240 were employed in cost of sales activities including areas such as warehousing and manufacturing, 1,990 in research and development and 4,370 in sales, marketing and administration. Of our employees, approximately 3,250 (31%) were located in the U.S., Canada and Latin America, 3,250 (31%) in Asia, 1,570 (14%) in Australia and 2,530 (24%) in Europe.",
+   "answer": "10,600: 4,240 cost of sales, 1,990 R&D, 4,370 SG&A; 31% Americas, 31% Asia, 14% Australia, 24% Europe."
+  },
+  {
+   "id": "M-011",
+   "ticker": "AKAM",
+   "qtype": "multi_span",
+   "question": "How is Akamai's workforce spread across countries and job roles?",
+   "quote": "As of December 31, 2025, we had over 11,000 employees located in more than 30 countries (with approximately 65% of those employees located outside of the U.S.) and representing over 100 nationalities, all of which we believe helps bring a global perspective to our operations. Our employees are grouped across the following roles, with the approximate percentage of the overall population noted: engineering and research and development (37%), services and support (26%), sales and marketing (17%) and administrative functions (20%).",
+   "answer": "11,000+ in 30+ countries, 65% outside the US; 37% engineering/R&D, 26% services, 17% sales, 20% admin."
+  },
+  {
+   "id": "M-012",
+   "ticker": "DPZ",
+   "qtype": "multi_span",
+   "question": "How are Domino's employees split across its businesses, and how many work part-time?",
+   "quote": "As of December 28, 2025, we had approximately 10,200 employees, including approximately 6,000 employees supporting our U.S. Company-owned stores and U.S. franchise operations (our U.S. stores segment), approximately 3,200 employees supporting our U.S. and Canadian supply chain operations (our supply chain segment), approximately 100 employees supporting our international franchise operations (our international franchise segment) and approximately 900 corporate employees. Approximately 4,000 of our employees are part-time and approximately 6,200 are full-time equivalent.",
+   "answer": "10,200: 6,000 US stores, 3,200 supply chain, 100 international, 900 corporate; about 4,000 part-time."
+  },
+  {
+   "id": "M-013",
+   "ticker": "KHC",
+   "qtype": "multi_span",
+   "question": "How concentrated are Kraft Heinz's sales among its largest customers in each segment?",
+   "quote": "In 2025, the five largest customers in our North America segment accounted for approximately 46% of North America segment net sales, the five largest customers in our International Developed Markets segment accounted for approximately 27% of International Developed Markets net sales, and the five largest customers in Emerging Markets accounted for approximately 15% of Emerging Markets net sales. Our largest customer, Walmart Inc., represented approximately 21% of our net sales in 2025, 2024, and 2023.",
+   "answer": "Top five: 46% North America, 27% International Developed, 15% Emerging; Walmart 21% overall."
+  },
+  {
+   "id": "M-014",
+   "ticker": "COR",
+   "qtype": "multi_span",
+   "question": "Who are Cencora's largest customers, and how concentrated is its revenue?",
+   "quote": "Walgreens and Boots together accounted for approximately 25% of our revenue in fiscal 2025 and, as of September 30, 2025, accounted for approximately 38% of our accounts receivable, net. Evernorth Health Services accounted for approximately 13% of our revenue in fiscal 2025. Our top ten customers, including governmental agencies, represented approximately 66% of revenue in fiscal 2025.",
+   "answer": "Walgreens/Boots 25% (38% of receivables), Evernorth 13%, top ten 66%."
+  },
+  {
+   "id": "M-015",
+   "ticker": "CIEN",
+   "qtype": "multi_span",
+   "question": "How concentrated is Ciena's revenue, and why does that matter?",
+   "quote": "For example, in fiscal 2025, our five largest customers contributed approximately 50% of our revenue, a cloud provider customer accounted for approximately 18% of our revenue, and a service provider accounted for approximately 11% of our revenue. Consequently, our results of operations could be materially adversely impacted by the loss of or a significant reduction in spending of a large customer.",
+   "answer": "Top five ~50%, one cloud provider 18%, one service provider 11%; losing one could hurt results materially."
+  },
+  {
+   "id": "M-016",
+   "ticker": "CARR",
+   "qtype": "multi_span",
+   "question": "Summarise Carrier's 2025 sales: size, operating profit, international share and product mix.",
+   "quote": "For the year ended December 31, 2025, our net sales were $21.7 billion and our operating profit was $2.2 billion. Our international operations, including U.S. export sales, represented approximately 52% of our net sales for 2025. During the same period, new equipment comprised 72% and parts and service comprised 28% of our net sales.",
+   "answer": "$21.7B sales, $2.2B operating profit, 52% international, 72% equipment / 28% parts and service."
+  },
+  {
+   "id": "M-017",
+   "ticker": "MCK",
+   "qtype": "multi_span",
+   "question": "How dependent is McKesson on its largest customers, in revenue and receivables?",
+   "quote": "At March 31, 2025, sales to our largest customer represented approximately 24% of our total consolidated revenues and approximately 23% of our total trade receivables, and those of our ten largest customers combined accounted for approximately 72% of our consolidated revenues and approximately 48% of our trade receivables.",
+   "answer": "Largest: 24% of revenue, 23% of receivables; top ten: 72% of revenue, 48% of receivables."
+  },
+  {
+   "id": "M-018",
+   "ticker": "SLB",
+   "qtype": "multi_span",
+   "question": "How international is SLB's revenue, and what risk does that create?",
+   "quote": "We are a global technology company, and our non-US operations accounted for approximately 82% of our consolidated revenue in 2025, 85% in 2024, and 84% in 2023. Geopolitical instability and unforeseen changes in any of the markets in which we operate could result in business disruptions or operational challenges that may adversely affect the demand for our products and services, or our reputation, our financial condition, and our results of operations and cash flows.",
+   "answer": "82% non-US; geopolitical instability could disrupt operations and demand."
+  },
+  {
+   "id": "M-019",
+   "ticker": "MCHP",
+   "qtype": "multi_span",
+   "question": "How dependent is Microchip on distributors, and how secure are those relationships?",
+   "quote": "Sales to distributors accounted for approximately 45% of our net sales in fiscal 2025 and approximately 47% of our net sales in fiscal 2024. With the exception of certain orders placed under our LTSAs, we do not have long-term purchase agreements with our distributors, and we and our distributors may each terminate our relationship with little or no advance notice.",
+   "answer": "45% of sales; no long-term agreements, terminable at little notice."
+  },
+  {
+   "id": "M-020",
+   "ticker": "PNR",
+   "qtype": "multi_span",
+   "question": "How concentrated is Pentair's customer base?",
+   "quote": "Our net sales to our largest customer represented approximately 18% of our consolidated net sales in 2025. While we do not have any other customers that accounted for more than 10% of our consolidated net sales in 2025, we have other customers that are key to the success of our business.",
+   "answer": "Largest customer 18%; no other above 10%."
+  },
+  {
+   "id": "M-021",
+   "ticker": "JBHT",
+   "qtype": "multi_span",
+   "question": "How concentrated is J.B. Hunt's revenue, and how secure are its customer contracts?",
+   "quote": "For the calendar year ended December 31, 2025, our top 10 customers, based on revenue, accounted for approximately 33% of our revenue. Our JBI, ICS, and JBT segments typically do not have long-term contracts with their customers.",
+   "answer": "Top ten 33%; JBI, ICS and JBT usually have no long-term contracts."
+  },
+  {
+   "id": "M-022",
+   "ticker": "CF",
+   "qtype": "multi_span",
+   "question": "What is CF Industries' relationship with its largest customer?",
+   "quote": "CHS was our largest customer in 2025 and accounted for approximately 13% of our consolidated net sales. We have a strategic venture with CHS under which CHS has a minority equity interest in CFN.",
+   "answer": "CHS: 13% of sales and a minority owner of CFN through a strategic venture."
+  },
+  {
+   "id": "M-023",
+   "ticker": "DLR",
+   "qtype": "multi_span",
+   "question": "How much does Digital Realty rely on buildings it does not own?",
+   "quote": "We do not own all the buildings in our portfolio. These leased buildings accounted for approximately 14% of our total revenue for the year ended December 31, 2025.",
+   "answer": "Leased buildings bring about 14% of revenue."
+  },
+  {
+   "id": "M-024",
+   "ticker": "LH",
+   "qtype": "multi_span",
+   "question": "What are Labcorp's two segments, and how much revenue does each contribute?",
+   "quote": "The Company reports its business in two segments, Diagnostics Laboratories and Biopharma Laboratory Services. In 2025 and 2024, Dx and BLS contributed approximately 78% and 22%, respectively, of Revenues to the Company.",
+   "answer": "Diagnostics 78%, Biopharma Laboratory Services 22%."
+  },
+  {
+   "id": "M-025",
+   "ticker": "MRVL",
+   "qtype": "multi_span",
+   "question": "Where does Marvell sell and make its products, and how much revenue comes from Asia?",
+   "quote": "Most of our sales are made to customers with operations located outside of the United States, primarily in Asia, and a majority of our products are manufactured outside the United States. Sales shipped to customers with operations in Asia represented approximately 75% of our net revenue in fiscal 2025, 70% of our net revenue in fiscal 2024 and 75% of our net revenue in fiscal 2023.",
+   "answer": "Mostly outside the US, primarily Asia; 75% of revenue shipped to Asia."
+  },
+  {
+   "id": "M-026",
+   "ticker": "EXE",
+   "qtype": "multi_span",
+   "question": "What is Expand Energy, and where are its operations?",
+   "quote": "Expand Energy is the largest independent natural gas producer in the U.S., based on net daily production, and is focused on responsibly developing an abundant supply of natural gas, oil and NGL to expand energy access for all. Our operations are located in Louisiana and Texas in the Haynesville and Bossier Shales",
+   "answer": "Largest independent US gas producer; Haynesville/Bossier (LA, TX) and Appalachia."
+  }
+ ]
+}

@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: [".github/benchmark-requests/**", "bench/questions.json"]
+    paths: [".github/benchmark-requests/**", "bench/*.json"]
 
 concurrency: benchmark
 
@@ -34,6 +34,13 @@ jobs:
           DB: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           set -eo pipefail
-          uv run python -m chunking_lab.benchmark --dsn "$DB" --questions ../bench/questions.json \
-            --models ../data/models/gte-small | tee "$RUNNER_TEMP/benchmark.log"
+          # .github/benchmark-requests/next.json may pick another question set, e.g.
+          #   {"questions": "bench/multi_sentence.json", "experiment": "multi-sentence-10k"}
+          # The pool is always seeded from bench/questions.json so every experiment searches the same filings.
+          REQ=../.github/benchmark-requests/next.json
+          QUESTIONS=$( [ -f "$REQ" ] && jq -r '.questions // empty' "$REQ" || true ); QUESTIONS=${QUESTIONS:-bench/questions.json}
+          EXPERIMENT=$( [ -f "$REQ" ] && jq -r '.experiment // empty' "$REQ" || true ); EXPERIMENT=${EXPERIMENT:-chunk-size-10k}
+          echo "questions=$QUESTIONS experiment=$EXPERIMENT"
+          uv run python -m chunking_lab.benchmark --dsn "$DB" --questions "../$QUESTIONS" --experiment "$EXPERIMENT" \
+            --pool-questions ../bench/questions.json --models ../data/models/gte-small | tee "$RUNNER_TEMP/benchmark.log"
           { echo '### Chunk size benchmark'; echo '```'; tail -n 140 "$RUNNER_TEMP/benchmark.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
