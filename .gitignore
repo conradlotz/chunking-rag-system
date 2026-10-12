@@ -34,3 +34,4 @@ data/raw/
 next-env.d.ts.bak
 .next-auth/
 data/models/
+.next-dev/
