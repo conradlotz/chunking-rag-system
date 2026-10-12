@@ -548,6 +548,19 @@ export function RetrievalLab({
     }
   }
 
+  // The example list is open by default; a visitor who hides it keeps it hidden on this browser.
+  const [examplesOpen, setExamplesOpen] = useState(true);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("lab-examples") === "closed") setExamplesOpen(false);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem("lab-examples", examplesOpen ? "open" : "closed");
+    } catch {}
+  }, [examplesOpen]);
+
   // An example question fills the box, then runs once the new question is in state.
   const [pendingRun, setPendingRun] = useState(false);
   useEffect(() => {
@@ -624,6 +637,29 @@ export function RetrievalLab({
             {loading ? "Searching…" : "Search"}
           </button>
         </div>
+        <details
+          className="group rounded-lg border border-line px-4 py-3"
+          open={examplesOpen}
+          onToggle={(e) => setExamplesOpen((e.currentTarget as HTMLDetailsElement).open)}
+          data-testid="examples-section"
+        >
+          <summary className="cursor-pointer select-none text-[13px] font-semibold text-ink-2">
+            Example questions
+          </summary>
+          <div className="mt-3 flex flex-wrap gap-2" data-testid="examples">
+            {EXAMPLES.map((ex) => (
+              <button
+                key={ex}
+                type="button"
+                onClick={() => ask(ex)}
+                disabled={loading}
+                className="rounded-full border border-line-2 bg-surface px-3 py-1.5 text-left text-[13px] text-ink hover:border-accent hover:text-accent disabled:opacity-50"
+              >
+                {ex}
+              </button>
+            ))}
+          </div>
+        </details>
         {answersEnabled && (
           <label className="flex w-fit cursor-pointer items-center gap-2 text-[13px] text-ink-2">
             <input
@@ -849,19 +885,7 @@ export function RetrievalLab({
         {!result && !loading && !error && (
           <div className="card card-pad border-dashed">
             <div className="font-semibold">
-              Try a question, or type your own above
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2" data-testid="examples">
-              {EXAMPLES.map((ex) => (
-                <button
-                  key={ex}
-                  type="button"
-                  onClick={() => ask(ex)}
-                  className="rounded-full border border-line-2 bg-surface px-3 py-1.5 text-left text-[13px] text-ink hover:border-accent hover:text-accent"
-                >
-                  {ex}
-                </button>
-              ))}
+              Pick an example question above, or type your own
             </div>
             <p className="mt-3 max-w-[60ch] text-[14px] text-ink-2">
               {answersEnabled

@@ -200,3 +200,17 @@ test("the front page opens Ask, and an example question runs a search", async ({
   await page.waitForSelector('[data-testid="hit"]');
   await expect(page.locator("#q")).toHaveValue(/tariffs/);
 });
+
+test("example questions can be hidden and stay available after a search", async ({ page }) => {
+  await page.goto("/search");
+  const section = page.getByTestId("examples-section");
+  await expect(page.getByTestId("examples").getByRole("button")).toHaveCount(10);
+  await section.locator("summary").click();
+  await expect(page.getByTestId("examples")).toBeHidden();
+  await page.reload();
+  await expect(page.getByTestId("examples")).toBeHidden(); // remembered
+  await section.locator("summary").click();
+  await page.getByTestId("examples").getByRole("button", { name: /supply chain/ }).click();
+  await page.waitForSelector('[data-testid="hit"]');
+  await expect(page.getByTestId("examples")).toBeVisible();
+});
