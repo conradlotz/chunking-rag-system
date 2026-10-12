@@ -307,7 +307,7 @@ def main() -> None:
                            "chunker": chunker.version.id, "integrity_errors": integrity_errors,
                            "finished": datetime.now(UTC).isoformat()}
                 cur.execute("update rag.ingest_runs set finished_at=now(), status=%s, summary=%s where id=%s",
-                            ("complete" if integrity_errors == 0 and loaded else "failed", json.dumps(summary), run_id))
+                            ("complete" if integrity_errors == 0 and failed == 0 else "failed", json.dumps(summary), run_id))
             print(json.dumps(summary, indent=2), flush=True)
         except BaseException:
             with conn.cursor() as cur:
