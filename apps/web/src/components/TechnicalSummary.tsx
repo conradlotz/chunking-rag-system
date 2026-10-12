@@ -1,42 +1,15 @@
 import type { ReactNode } from "react";
 import { compact, int, pct } from "@/lib/format";
-import type { Benchmarks, SweepPoint } from "@/lib/types";
-import { chunkSizeVerdict } from "@/lib/verdict";
+import type { Benchmarks } from "@/lib/types";
+import { MULTI_EXPERIMENT, chunkSizeVerdict, multiCells, multiFindings } from "@/lib/verdict";
 import { recommend } from "./ExecutiveSummary";
 import { StrategyDot } from "./ui";
 
-export const MULTI_EXPERIMENT = "multi-sentence-10k";
-
 const num = (v: unknown): number | null => (v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 const p0 = (v: number | null | undefined) => pct(v, 0);
+const pts = (v: number | null) => (v == null ? "—" : `${Math.round(v * 100)} points`);
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const name = (strategy: string, size: number) => `${strategy === "structural" ? "structure-aware" : "fixed-size"} ${size}`;
-
-interface MultiCell {
-  strategy: string;
-  size: number;
-  whole: number;
-  wholeExpanded: number | null;
-  tokens: number;
-  tokensExpanded: number | null;
-}
-
-function multiCells(points: SweepPoint[]): MultiCell[] {
-  return points
-    .filter((p) => p.experiment_id === MULTI_EXPERIMENT && p.stage === "screening")
-    .map((p) => {
-      const params = p.params as Record<string, unknown>;
-      const extra = (p.extra ?? {}) as Record<string, unknown>;
-      return {
-        strategy: String(params.strategy),
-        size: Number(params.size ?? params.max_tokens),
-        whole: num(p.full_evidence_rate) ?? 0,
-        wholeExpanded: num(extra.expanded_full_rate),
-        tokens: num(p.context_tokens_mean) ?? 0,
-        tokensExpanded: num(extra.expanded_tokens_mean),
-      };
-    })
-    .sort((a, b) => (a.strategy === b.strategy ? a.size - b.size : a.strategy === "fixed" ? -1 : 1));
-}
 
 function Block({ n, title, children }: { n: number; title: string; children: ReactNode }) {
   return (
@@ -67,10 +40,9 @@ export function TechnicalSummary({
   const s128 = get("structural", 128);
   const multi = multiCells(b.points);
   const multiDone = multi.length >= 8;
-  const bestWhole = [...multi].sort((a, c) => c.whole - a.whole || a.tokens - c.tokens)[0];
-  const bestExpanded = [...multi]
-    .filter((m) => m.wholeExpanded != null)
-    .sort((a, c) => c.wholeExpanded! - a.wholeExpanded! || (a.tokensExpanded ?? 0) - (c.tokensExpanded ?? 0))[0];
+  const mf = multiFindings(multi);
+  const bestWhole = mf?.best;
+  const bestExpanded = mf?.bestExpanded;
   const multiRun = b.runs.find((r) => (r.summary as Record<string, unknown> | null)?.experiment === MULTI_EXPERIMENT);
   const nMulti = num((multiRun?.summary as Record<string, unknown> | null)?.questions) ?? 26;
 
@@ -240,10 +212,21 @@ export function TechnicalSummary({
                 </table>
               </div>
               {!multiDone && <p className="text-[12.5px]">Still running: {multi.length} of 8 setups measured so far.</p>}
-              <p>
-                Lesson: longer answers favour larger chunks or expansion around small ones; expansion buys completeness at roughly 2.5–3×
-                the reading cost, so it suits questions that ask &ldquo;why&rdquo; or &ldquo;how&rdquo; rather than &ldquo;how much&rdquo;.
-              </p>
+              {multiDone && mf && bestWhole && (
+                <p>
+                  Lesson: structure beats size here too. {cap(name(bestWhole.strategy, bestWhole.size))} got the whole answer to the model{" "}
+                  {p0(bestWhole.whole)} of the time reading {int(bestWhole.tokens)} tokens
+                  {mf.bestFixed ? (
+                    <>
+                      ; the best fixed-size setup ({name(mf.bestFixed.strategy, mf.bestFixed.size)}) managed {p0(mf.bestFixed.whole)}{" "}
+                      reading {int(mf.bestFixed.tokens)}
+                    </>
+                  ) : null}
+                  . Adding neighbouring passages mostly repairs blind cuts: it lifted fixed-size chunks by {pts(mf.gain.fixed)} on average
+                  but structure-aware ones by only {pts(mf.gain.structural)}, at roughly three times the text. So the same setting serves
+                  both kinds of question; widen it or add neighbours only when answers routinely run past a paragraph.
+                </p>
+              )}
             </>
           )}
         </Block>

@@ -168,3 +168,24 @@ test("match labels, plain reasons, grouping by company and the summary line", ()
   assert.equal(s.text, "4 passages from 3 companies in 2 sectors");
   assert.deepEqual(s.sectors, [["Retail", 2], ["Manufacturing", 1]]);
 });
+
+import { multiCells, multiFindings } from "./verdict.ts";
+
+test("multi-sentence findings: best setup, best fixed, expansion gains", () => {
+  const pt = (strategy: string, size: number, whole: number, wholeExp: number, tokens: number) => ({
+    id: size, experiment_id: "multi-sentence-10k", chunker_version_id: `chunker/${strategy}.${size}@1`,
+    params: strategy === "fixed" ? { strategy, size } : { strategy, max_tokens: size }, stage: "screening",
+    recall_at_5: whole, mrr: null, answer_span_containment: 1, full_evidence_rate: whole, answer_accuracy: null,
+    chunks: 1, tokens_embedded: 1, index_bytes: null, context_tokens_mean: tokens, retrieval_p95_ms: null, answer_p95_ms: null,
+    extra: { expanded_full_rate: wholeExp, expanded_tokens_mean: tokens * 3 },
+  });
+  const f = multiFindings(multiCells([
+    pt("fixed", 128, 0.12, 0.23, 636), pt("fixed", 480, 0.42, 0.58, 2400),
+    pt("structural", 256, 0.54, 0.54, 828), pt("structural", 384, 0.54, 0.58, 1224),
+  ]))!;
+  assert.equal(f.best.size, 256);
+  assert.equal(f.bestFixed!.size, 480);
+  assert.equal(f.bestExpanded!.strategy, "structural"); // 58% at 3,672 tokens beats 58% at 7,200
+  assert.ok(Math.abs(f.gain.fixed! - 0.135) < 1e-9 && Math.abs(f.gain.structural! - 0.02) < 1e-9);
+  assert.equal(multiFindings([]), null);
+});

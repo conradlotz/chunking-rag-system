@@ -3,7 +3,7 @@ import { ExecutiveSummary } from "@/components/ExecutiveSummary";
 import { PageHeader, Section } from "@/components/ui";
 import { SweepExplorer } from "@/components/SweepExplorer";
 import { api, getSession } from "@/lib/data";
-import { chunkSizeVerdict } from "@/lib/verdict";
+import { chunkSizeVerdict, multiCells } from "@/lib/verdict";
 
 export const metadata = { title: "Benchmarks" };
 
@@ -23,7 +23,7 @@ export default async function BenchmarksPage() {
           title="Executive summary"
           note="Which chunk type and size work best, how fast each is, and why. Every number comes from the benchmark below."
         >
-          <ExecutiveSummary v={verdict} />
+          <ExecutiveSummary v={verdict} multi={multiCells(b.points)} />
         </Section>
       )}
       {verdict && (

@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import type { ReactNode } from "react";
 import { int, pct } from "@/lib/format";
-import type { Cell, Verdict } from "@/lib/verdict";
+import { multiFindings, type Cell, type MultiCell, type Verdict } from "@/lib/verdict";
 import { StrategyDot } from "./ui";
 
 type C = Cell & { strategy: string; size: number };
@@ -9,6 +9,7 @@ type C = Cell & { strategy: string; size: number };
 const name = (c: C) => `${c.strategy === "structural" ? "Structure-aware" : "Fixed-size"} ${c.size}`;
 const mins = (s: number | null | undefined) => (s == null ? "—" : `${(s / 60).toFixed(1)} min`);
 const ms = (v: number | null) => (v == null ? "—" : `${Math.round(v)} ms`);
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const p0 = (v: number | null | undefined) => pct(v, 0);
 
 /** The configuration to recommend: within 2 points of the best top-5 rate, then most answers within a fixed
@@ -39,7 +40,7 @@ function Why({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-export function ExecutiveSummary({ v }: { v: Verdict }) {
+export function ExecutiveSummary({ v, multi = [] }: { v: Verdict; multi?: MultiCell[] }) {
   const cells = v.cells as C[];
   const get = (strategy: string, size: number) => cells.find((c) => c.strategy === strategy && c.size === size);
   const rec = recommend(cells);
@@ -54,6 +55,8 @@ export function ExecutiveSummary({ v }: { v: Verdict }) {
   const fRec = get("fixed", rec.size);
   const sOneUp = get("structural", sizes[sizes.indexOf(rec.size) + 1] ?? largest);
   const readRatio = bestFixed && rec.tokens > 0 ? bestFixed.tokens / rec.tokens : null;
+  const mf = multi.length >= 8 ? multiFindings(multi) : null;
+  const sizeName = (c: MultiCell) => `${c.strategy === "structural" ? "structure-aware" : "fixed-size"} ${c.size}`;
   const ordered = [...cells].sort((a, b) => (a.strategy === b.strategy ? a.size - b.size : a.strategy === "fixed" ? -1 : 1));
 
   return (
@@ -171,28 +174,56 @@ export function ExecutiveSummary({ v }: { v: Verdict }) {
       </div>
 
       <div className="card card-pad border-l-4 border-l-accent">
-        <h3 className="text-[15px] font-semibold">What about answers that span several sentences?</h3>
+        <h3 className="text-[15px] font-semibold">Answers that span several sentences</h3>
         <div className="mt-2 space-y-2 text-[14px] leading-relaxed text-ink-2">
-          <p>
-            These questions were short look-ups: one sentence holds the answer. Questions like “why did margins fall, and what is the company
-            doing about it?” need several sentences, often across a paragraph or two, and the whole span has to reach the AI.
-          </p>
-          <p>
-            <strong className="text-ink">Best approach: find small, read big.</strong> Keep {rec.size}-token structure-aware chunks for
-            finding, then hand the AI the surrounding paragraphs or the whole section they sit in (the Ask page&apos;s “Add surrounding text”
-            option does this). The search stays precise and the answer gets its full context.
-          </p>
-          <p>
-            <strong className="text-ink">Without that expansion,</strong> larger structure-aware chunks (384–480 tokens) are the better
-            choice: they keep a multi-sentence explanation together, and they already find more answers within ten results (
-            {p0(sOneUp?.recall10)} at {sOneUp?.size} tokens against {p0(rec.recall10)} at {rec.size}). Stay at or under 480: the embedding model
-            reads at most 512 tokens, so anything longer is cut off before it is understood. Fixed-size chunks are the worst choice here,
-            because their blind cuts are most likely to split a multi-sentence answer.
-          </p>
-          <p className="text-[13px]">
-            This is reasoning from the results above, not yet measured. The next benchmark adds multi-sentence questions and scores whether the
-            whole answer, not just part of it, reaches the AI.
-          </p>
+          {mf ? (
+            <>
+              <p>
+                Measured with a second set of questions whose answers need two to four consecutive sentences, scored on whether the{" "}
+                <em>whole</em> answer reached the AI. The full table is in the technical summary on the How it works page.
+              </p>
+              <p>
+                <strong className="text-ink">Structure still wins.</strong> {cap(sizeName(mf.best))} got the whole answer into the top five{" "}
+                {p0(mf.best.whole)} of the time, reading {int(mf.best.tokens)} tokens
+                {mf.bestFixed ? (
+                  <>
+                    . The best fixed-size setup, {sizeName(mf.bestFixed)}, managed {p0(mf.bestFixed.whole)} while reading{" "}
+                    {int(mf.bestFixed.tokens)}
+                  </>
+                ) : null}
+                . So the recommended setting holds for longer answers too.
+              </p>
+              <p>
+                <strong className="text-ink">Find small, read big helps blind cuts, not good ones.</strong> Adding each result&apos;s
+                neighbouring passages raised fixed-size chunks by {mf.gain.fixed != null ? Math.round(mf.gain.fixed * 100) : "—"} points on
+                average but structure-aware ones by only {mf.gain.structural != null ? Math.round(mf.gain.structural * 100) : "—"}, and
+                roughly tripled the text read
+                {mf.bestExpanded?.wholeExpanded != null ? (
+                  <>
+                    {" "}
+                    (best with neighbours: {p0(mf.bestExpanded.wholeExpanded)} with {sizeName(mf.bestExpanded)}, at{" "}
+                    {int(mf.bestExpanded.tokensExpanded)} tokens)
+                  </>
+                ) : null}
+                . Use it only when answers routinely run past a paragraph. Stay at or under 480 tokens per chunk: the embedding model
+                reads at most 512.
+              </p>
+            </>
+          ) : (
+            <>
+              <p>
+                These questions were short look-ups: one sentence holds the answer. Questions like “why did margins fall, and what is the
+                company doing about it?” need several sentences, and the whole span has to reach the AI.
+              </p>
+              <p>
+                <strong className="text-ink">Expected: find small, read big.</strong> Keep {rec.size}-token structure-aware chunks for
+                finding, then hand the AI the surrounding paragraphs (the Ask page&apos;s “Add surrounding text” option), or use larger
+                structure-aware chunks of 384–480 tokens ({p0(sOneUp?.recall10)} within ten results at {sOneUp?.size} tokens against{" "}
+                {p0(rec.recall10)} at {rec.size}).
+              </p>
+              <p className="text-[13px]">This is reasoning from the results above; the multi-sentence benchmark measures it.</p>
+            </>
+          )}
         </div>
       </div>
 

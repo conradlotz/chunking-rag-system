@@ -176,3 +176,65 @@ export function chunkSizeVerdict(b: Benchmarks): Verdict | null {
     sentences,
   };
 }
+
+/** The multi-sentence experiment: answers that need two to four consecutive sentences. */
+export const MULTI_EXPERIMENT = "multi-sentence-10k";
+
+export interface MultiCell {
+  strategy: string;
+  size: number;
+  /** Share of questions whose whole answer is inside the top five passages. */
+  whole: number;
+  /** The same with each top-five passage's neighbours added ("find small, read big"). */
+  wholeExpanded: number | null;
+  tokens: number;
+  tokensExpanded: number | null;
+}
+
+export function multiCells(points: SweepPoint[]): MultiCell[] {
+  const n = (v: unknown) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+  return points
+    .filter((p) => p.experiment_id === MULTI_EXPERIMENT && p.stage === "screening")
+    .map((p) => {
+      const params = p.params as Record<string, unknown>;
+      const extra = (p.extra ?? {}) as Record<string, unknown>;
+      return {
+        strategy: String(params.strategy),
+        size: Number(params.size ?? params.max_tokens),
+        whole: n(p.full_evidence_rate) ?? 0,
+        wholeExpanded: n(extra.expanded_full_rate),
+        tokens: n(p.context_tokens_mean) ?? 0,
+        tokensExpanded: n(extra.expanded_tokens_mean),
+      };
+    })
+    .sort((a, b) => (a.strategy === b.strategy ? a.size - b.size : a.strategy === "fixed" ? -1 : 1));
+}
+
+export interface MultiFindings {
+  /** Most whole answers from the top five alone (ties: least text read). */
+  best: MultiCell;
+  /** The best fixed-size setup on the same measure. */
+  bestFixed: MultiCell | null;
+  /** Most whole answers once neighbours are added (ties: least text read). */
+  bestExpanded: MultiCell | null;
+  /** Average gain in whole answers from adding neighbours, per strategy. */
+  gain: { fixed: number | null; structural: number | null };
+}
+
+export function multiFindings(cells: MultiCell[]): MultiFindings | null {
+  if (cells.length === 0) return null;
+  const byWhole = (a: MultiCell, b: MultiCell) => b.whole - a.whole || a.tokens - b.tokens;
+  const gain = (s: string) => {
+    const xs = cells.filter((c) => c.strategy === s && c.wholeExpanded != null);
+    return xs.length ? xs.reduce((t, c) => t + (c.wholeExpanded! - c.whole), 0) / xs.length : null;
+  };
+  return {
+    best: [...cells].sort(byWhole)[0]!,
+    bestFixed: [...cells].filter((c) => c.strategy === "fixed").sort(byWhole)[0] ?? null,
+    bestExpanded:
+      [...cells]
+        .filter((c) => c.wholeExpanded != null)
+        .sort((a, b) => b.wholeExpanded! - a.wholeExpanded! || (a.tokensExpanded ?? 0) - (b.tokensExpanded ?? 0))[0] ?? null,
+    gain: { fixed: gain("fixed"), structural: gain("structural") },
+  };
+}
