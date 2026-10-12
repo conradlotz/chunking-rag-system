@@ -175,6 +175,8 @@ export interface SearchHit {
   similarity: number | null;
   ticker: string;
   company: string;
+  /** Broad SIC division, e.g. "Manufacturing" (absent on older databases). */
+  sector?: string | null;
   fiscal_year: number;
   item: string | null;
   heading: string | null;

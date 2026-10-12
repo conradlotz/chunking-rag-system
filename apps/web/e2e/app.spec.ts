@@ -46,9 +46,10 @@ test("search returns ranked, highlighted passages with fusion ranks and timings"
   const first = page.getByTestId("hit").first();
   await expect(first).toContainText(/tariff/i);
   await expect(first.locator("mark.term").first()).toBeVisible();
-  await expect(first).toContainText(/Matched your (words|meaning)/);
-  await first.getByText("How it was found").click();
+  await expect(first.getByTestId("match")).toContainText(/match/);
+  await first.getByText("Why this result?").click();
   await expect(first).toContainText("Meaning match rank");
+  await expect(page.getByTestId("summary")).toContainText(/passages? from \d+ compan/);
   await expect(page.getByTestId("timings")).toContainText("total");
   expect(page.url()).toContain("q=How");
   expect(errors).toEqual([]);
@@ -103,6 +104,23 @@ test("context expansion adds neighbouring blocks and never exceeds the budget", 
   expect(staticSpans).toBeGreaterThanOrEqual(1);
 });
 
+test("a shared link with a question runs the search on arrival", async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto("/search?q=How%20do%20tariffs%20affect%20gross%20margin%3F");
+  await page.waitForSelector('[data-testid="hit"]');
+  await expect(page.getByTestId("company").first()).toBeVisible();
+  // no Anthropic key in the test environment: the answer option is hidden, not broken
+  await expect(page.getByText("Write an answer with Claude")).toHaveCount(0);
+  await expect(page.getByText("ANTHROPIC_API_KEY")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("compare search methods runs one question three ways", async ({ page }) => {
+  await page.goto("/search?view=methods&q=gross%20margin%20freight");
+  await expect(page.getByTestId("methods-summary")).toContainText("share");
+  for (const m of ["vector", "hybrid", "keyword"]) await expect(page.getByTestId(`method-${m}`)).toBeVisible();
+});
+
 test("an empty or one-letter question is refused", async ({ page }) => {
   await page.goto("/search");
   await expect(page.getByRole("button", { name: "Search", exact: true })).toBeDisabled();
@@ -131,7 +149,7 @@ test("explorer draws chunk boundaries, compares two layouts and reports answer-s
 test("explorer highlights a passage opened from a search hit", async ({ page }) => {
   await page.goto("/search");
   await search(page, "How do tariffs affect gross margin?");
-  await page.getByTestId("hit").first().getByText("How it was found").click();
+  await page.getByTestId("hit").first().getByText("Why this result?").click();
   await page.getByTestId("hit").first().getByRole("link", { name: /Open in Explorer/ }).click();
   await expect(page.locator(".hlspan").first()).toBeVisible();
 });

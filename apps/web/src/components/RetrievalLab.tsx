@@ -4,11 +4,12 @@ import clsx from "clsx";
 import {
   ArrowUpRight,
   LoaderCircle,
+  RotateCcw,
   Search,
   SlidersHorizontal,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { describeConfig, configName, int } from "@/lib/format";
 import { queryTerms } from "@/lib/terms";
 import type {
@@ -20,7 +21,8 @@ import type {
 } from "@/lib/types";
 import { AnswerPanel, type AnswerState } from "./AnswerPanel";
 import { HowWeGotThere, type SearchSettings } from "./HowWeGotThere";
-import { SourceCard } from "./SourceCard";
+import { CompanyCard } from "./SourceCard";
+import { groupByCompany, resultSummary } from "@/lib/match";
 import { BudgetBar } from "./BudgetBar";
 import { Passage } from "./Passage";
 import { StrategyDot } from "./ui";
@@ -289,12 +291,56 @@ function ContextView({
   );
 }
 
+/** What the visitor sees while a search runs: the step in progress and the seconds elapsed. */
+function Progress({ phase, startedAt, retrying }: { phase: "search" | "answer"; startedAt: number; retrying: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(t);
+  }, []);
+  const secs = Math.max(0, Math.floor((now - startedAt) / 1000));
+  const steps = [
+    { key: "search", label: "Finding the most relevant passages in 250 filings" },
+    { key: "answer", label: "Writing a short answer from them" },
+  ] as const;
+  return (
+    <div className="card card-pad mb-6" role="status" data-testid="progress">
+      <ol className="space-y-1.5 text-[14px]">
+        {steps.map((st) => {
+          const done = phase === "answer" && st.key === "search";
+          const active = phase === st.key;
+          return (
+            <li key={st.key} className={clsx("flex items-center gap-2", !done && !active && "text-muted")}>
+              {active ? (
+                <LoaderCircle size={14} className="animate-spin text-accent" />
+              ) : (
+                <span className={clsx("inline-block h-3.5 w-3.5 rounded-full border", done ? "border-accent bg-accent" : "border-line-2")} />
+              )}
+              {st.label}
+              {active && <span className="tnum text-[12.5px] text-muted">{secs} s</span>}
+            </li>
+          );
+        })}
+      </ol>
+      {(retrying || secs >= 8) && (
+        <p className="mt-2 text-[12.5px] text-ink-2">
+          {retrying
+            ? "The first attempt didn't finish, trying once more…"
+            : "Still working. The first search after a quiet spell wakes the database, which can take a few extra seconds."}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function RetrievalLab({
   configs,
   initial,
+  answersEnabled,
 }: {
   configs: Configs;
   initial: LabInitial;
+  answersEnabled: boolean;
 }) {
   const readySets = configs.embedding_sets;
   const chunkerById = useMemo(
@@ -328,7 +374,10 @@ export function RetrievalLab({
   const [searched, setSearched] = useState<SearchSettings | null>(null);
   const [howOpen, setHowOpen] = useState(false);
   const [ctxOpen, setCtxOpen] = useState(false);
-  const [withAnswer, setWithAnswer] = useState(true);
+  const [withAnswer, setWithAnswer] = useState(answersEnabled);
+  const [phase, setPhase] = useState<"search" | "answer">("search");
+  const [startedAt, setStartedAt] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   const [answer, setAnswer] = useState<AnswerState | null>(null);
 
   function cite(n: number) {
@@ -378,6 +427,7 @@ export function RetrievalLab({
         };
         if (ev.type === "retrieval") {
           setResult(ev as unknown as RetrieveResponse);
+          setPhase("answer");
           update({ sources: (ev.sources as AnswerState["sources"]) ?? [] });
         } else if (ev.type === "text")
           update({ text: current.text + (ev.text as string) });
@@ -404,6 +454,10 @@ export function RetrievalLab({
     if (!q.trim() || !setId || loading) return;
     setLoading(true);
     setError(null);
+    setResult(null);
+    setPhase("search");
+    setStartedAt(Date.now());
+    setRetrying(false);
     const body: RetrieveRequest = {
       query: q,
       embeddingSetId: setId,
@@ -419,8 +473,8 @@ export function RetrievalLab({
       exact,
     };
     setAnswer(null);
-    try {
-      if (withAnswer) {
+    const attempt = async () => {
+      if (withAnswer && answersEnabled) {
         await streamAnswer(body);
       } else {
         const res = await fetch("/api/retrieve", {
@@ -428,12 +482,21 @@ export function RetrievalLab({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        const data = (await res.json()) as RetrieveResponse & {
+        const data = (await res.json().catch(() => ({}))) as RetrieveResponse & {
           error?: string;
         };
         if (!res.ok)
           throw new Error(data.error ?? `Request failed (${res.status})`);
         setResult(data);
+      }
+    };
+    try {
+      try {
+        await attempt();
+      } catch {
+        // One automatic retry: the first search after the database idles can time out while it warms up.
+        setRetrying(true);
+        await attempt();
       }
       const cfg = readySets.find((x) => x.id === setId);
       setSearched({
@@ -467,8 +530,18 @@ export function RetrievalLab({
       setError(err instanceof Error ? err.message : "Search failed");
     } finally {
       setLoading(false);
+      setRetrying(false);
     }
   }
+
+  // A shared link carries the question: run it straight away so the visitor lands on results.
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRan.current || !initial.q.trim()) return;
+    autoRan.current = true;
+    void run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (readySets.length === 0) {
     return (
@@ -524,15 +597,17 @@ export function RetrievalLab({
             {loading ? "Searching…" : "Search"}
           </button>
         </div>
-        <label className="flex w-fit cursor-pointer items-center gap-2 text-[13px] text-ink-2">
-          <input
-            type="checkbox"
-            checked={withAnswer}
-            onChange={(e) => setWithAnswer(e.target.checked)}
-            className="h-4 w-4 accent-[var(--accent)]"
-          />
-          Write an answer with Claude from the retrieved passages
-        </label>
+        {answersEnabled && (
+          <label className="flex w-fit cursor-pointer items-center gap-2 text-[13px] text-ink-2">
+            <input
+              type="checkbox"
+              checked={withAnswer}
+              onChange={(e) => setWithAnswer(e.target.checked)}
+              className="h-4 w-4 accent-[var(--accent)]"
+            />
+            Write an answer with Claude from the retrieved passages
+          </label>
+        )}
         <details className="rounded-lg border border-line px-4 py-3">
           <summary className="cursor-pointer select-none text-[13px] font-semibold text-ink-2">
             Options: how to search, filters, what the AI reads
@@ -728,13 +803,20 @@ export function RetrievalLab({
       </form>
 
       <div className="min-w-0" aria-live="polite">
-        {error && (
-          <p
+        {loading && <Progress phase={phase} startedAt={startedAt} retrying={retrying} />}
+        {error && !loading && (
+          <div
             role="alert"
-            className="mb-5 rounded-lg border border-[color-mix(in_srgb,var(--critical)_40%,transparent)] bg-[color-mix(in_srgb,var(--critical)_9%,transparent)] px-4 py-3 text-[14px]"
+            className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[color-mix(in_srgb,var(--critical)_40%,transparent)] bg-[color-mix(in_srgb,var(--critical)_9%,transparent)] px-4 py-3 text-[14px]"
           >
-            {error}
-          </p>
+            <span>
+              The search didn&apos;t finish. Trying again usually works.
+              <span className="block text-[12.5px] text-ink-2">{error}</span>
+            </span>
+            <button type="button" className="btn" onClick={() => void run()}>
+              <RotateCcw size={14} /> Try again
+            </button>
+          </div>
         )}
         {answer && <AnswerPanel answer={answer} onCite={cite} />}
         {!result && !loading && !error && (
@@ -743,10 +825,9 @@ export function RetrievalLab({
               Ask a question about the filings
             </div>
             <p className="mt-1 max-w-[60ch] text-[14px] text-ink-2">
-              Claude writes a short answer with numbered citations, and below it
-              you&apos;ll see the ranked passages, how keyword and vector
-              rankings were fused, and exactly which context the answer was
-              written from.
+              {answersEnabled
+                ? "Claude writes a short answer with numbered citations. Below it are the passages it was written from, grouped by company, and “How we got there” shows every step."
+                : "You get the most relevant passages from 250 companies' latest 10-K filings, grouped by company, and “How we got there” shows every step."}
             </p>
           </div>
         )}
@@ -790,25 +871,35 @@ export function RetrievalLab({
                 </p>
               </div>
             ) : (
-              <>
-                <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.1em] text-muted">
-                  Sources · {result.hits.length} passages
-                </h2>
-                <div className="space-y-4" data-testid="hits">
-                  {result.hits.map((h, i) => (
-                    <SourceCard
-                      key={h.unit_id}
-                      hit={h}
-                      rank={i + 1}
-                      terms={terms}
-                    />
-                  ))}
-                </div>
-              </>
+              <Results hits={result.hits} terms={terms} />
             )}
           </>
         )}
       </div>
     </div>
+  );
+}
+
+function Results({ hits, terms }: { hits: SearchHit[]; terms: string[] }) {
+  const groups = useMemo(() => groupByCompany(hits), [hits]);
+  const summary = useMemo(() => resultSummary(hits), [hits]);
+  return (
+    <>
+      <div className="mb-4" data-testid="summary">
+        <h2 className="text-[15px] font-semibold">{summary.text}</h2>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {summary.sectors.map(([sector, n]) => (
+            <span key={sector} className="rounded-full border border-line-2 bg-surface px-2.5 py-[2px] text-[12px] text-ink-2">
+              {sector} · {n}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-4" data-testid="hits">
+        {groups.map((g, i) => (
+          <CompanyCard key={g.ticker} group={g} terms={terms} index={i} />
+        ))}
+      </div>
+    </>
   );
 }

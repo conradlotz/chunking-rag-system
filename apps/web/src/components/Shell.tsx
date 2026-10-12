@@ -80,11 +80,9 @@ export function Shell({
           )}
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <div
-                className="truncate text-[12px] font-medium text-ink-2"
-                title={email ?? ""}
-              >
-                {email ?? "Not signed in"}
+              {/* The account name is not shown: visitors share a demo login. */}
+              <div className="truncate text-[12px] font-medium text-ink-2">
+                {email ? "Signed in" : "Not signed in"}
               </div>
             </div>
             <ThemeToggle />

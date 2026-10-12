@@ -149,3 +149,22 @@ test("chunkSizeVerdict reads the chunk-size experiment and explains it in plain 
   assert.match(v.sentences[3]!, /structure-aware 128-token chunks found the most answers \(70%\)/);
   assert.equal(chunkSizeVerdict({ experiments: [], points: [], runs: [] }), null);
 });
+
+import { groupByCompany, matchStrength, resultSummary, whyThisResult } from "./match.ts";
+
+test("match labels, plain reasons, grouping by company and the summary line", () => {
+  const hit = (ticker: string, sector: string, similarity: number | null, keyword_rank: number | null, vector_rank: number | null) => ({
+    unit_id: Math.random(), canonical_document_id: "d", node_id: 1, start: 0, end: 10, tokens: 50, score: 1,
+    vector_rank, keyword_rank, similarity, ticker, company: ticker + " Inc", sector, fiscal_year: 2025, item: "7",
+    heading: null, text: "x",
+  });
+  const hits = [hit("AAA", "Retail", 0.91, null, 1), hit("BBB", "Manufacturing", 0.86, null, 2), hit("AAA", "Retail", 0.83, null, 3), hit("CCC", "Retail", null, 4, null)];
+  assert.deepEqual(hits.map(matchStrength), ["strong", "good", "weak", "strong"]);
+  assert.equal(whyThisResult(hits[0]!), "It is the 1st closest passage in meaning to your question (similarity 0.91 on a 0 to 1 scale).");
+  assert.match(whyThisResult(hits[3]!), /every word of your question \(4th best word match\)/);
+  const groups = groupByCompany(hits);
+  assert.deepEqual(groups.map((g) => [g.ticker, g.bestRank, g.hits.length]), [["AAA", 1, 2], ["BBB", 2, 1], ["CCC", 4, 1]]);
+  const s = resultSummary(hits);
+  assert.equal(s.text, "4 passages from 3 companies in 2 sectors");
+  assert.deepEqual(s.sectors, [["Retail", 2], ["Manufacturing", 1]]);
+});
