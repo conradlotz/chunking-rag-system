@@ -1,0 +1,58 @@
+name: Answer eval - judge vs human
+
+# When a filled-in bench/answer-eval/runs/<run_id>/human_scores.csv is pushed (editing it on github.com
+# works), compare the person's scores with the GEval judge's and commit report.md next to it.
+# Standard library only: no model calls, no secrets.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Run folder to compare
+        required: true
+  push:
+    branches: [main]
+    paths: ["bench/answer-eval/runs/**/human_scores.csv"]
+
+permissions:
+  contents: write
+
+concurrency: answer-eval
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compare
+        working-directory: pipeline
+        env:
+          RUN_ID: ${{ inputs.run_id }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -eo pipefail
+          if [ -n "$RUN_ID" ]; then RUNS="$RUN_ID"; else
+            RUNS=$(git diff --name-only "$BEFORE" HEAD -- '../bench/answer-eval/runs/*/human_scores.csv' \
+                   | awk -F/ '{print $(NF-1)}' | sort -u)
+          fi
+          for r in $RUNS; do
+            sheet="../bench/answer-eval/runs/$r/human_scores.csv"
+            if ! python3 -c "import csv,sys; sys.exit(0 if any((x.get('your_score') or '').strip() for x in csv.DictReader(open(sys.argv[1], encoding='utf-8-sig'))) else 1)" "$sheet"; then
+              echo "$r: no scores yet, skipped"; continue
+            fi
+            python3 -m chunking_lab.answer_eval compare --run-id "$r"
+            cat "../bench/answer-eval/runs/$r/report.md" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Commit report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bench/answer-eval/runs/*/report.md 2>/dev/null || true
+          git commit -m "Answer eval: judge vs human report" || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main

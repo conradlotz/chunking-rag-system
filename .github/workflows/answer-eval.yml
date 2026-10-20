@@ -1,0 +1,65 @@
+name: Answer eval
+
+# Is the written answer right, grounded and honest? For each question in bench/answer-eval/questions.json:
+# search the live app with the production configuration, have Claude write the answer with the app's own
+# prompt, run the code checks, then score with DeepEval (faithfulness, answer relevancy, contextual recall
+# and a GEval correctness judge). Results are committed to bench/answer-eval/runs/<run_id>/, including a
+# blind human_scores.csv to fill in by hand. Start it from the Actions tab, or by pushing
+#   .github/answer-eval-requests/next.json   {"run_id": "first", "limit": 30}
+# Needs the ANTHROPIC_API_KEY repository secret (and VERCEL_PROTECTION_BYPASS if deployment protection is on).
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Folder name under bench/answer-eval/runs/ (re-using one resumes it)
+        required: true
+        default: first
+      limit:
+        description: First N questions only (blank for all)
+        required: false
+  push:
+    branches: [main]
+    paths: [".github/answer-eval-requests/**"]
+
+permissions:
+  contents: write
+
+concurrency: answer-eval
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Answer, check and judge
+        working-directory: pipeline
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
+          RUN_ID: ${{ inputs.run_id }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          set -eo pipefail
+          REQ=../.github/answer-eval-requests/next.json
+          if [ -z "$RUN_ID" ] && [ -f "$REQ" ]; then
+            RUN_ID=$(jq -r '.run_id // empty' "$REQ"); LIMIT=$(jq -r '.limit // empty' "$REQ")
+          fi
+          RUN_ID=${RUN_ID:-first}
+          echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          test -n "$ANTHROPIC_API_KEY" || { echo "::error::Add the ANTHROPIC_API_KEY repository secret"; exit 1; }
+          uv run --no-project --python 3.12 --with-requirements ../bench/answer-eval/requirements.txt \
+            python -m chunking_lab.answer_eval run --run-id "$RUN_ID" ${LIMIT:+--limit "$LIMIT"}
+          cat "../bench/answer-eval/runs/$RUN_ID/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Commit results
+        # Also after a failure: answers already written are kept, and a re-run with the same run_id resumes.
+        if: always() && env.RUN_ID != ''
+        run: |
+          [ -d "bench/answer-eval/runs/$RUN_ID" ] || exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "bench/answer-eval/runs/$RUN_ID"
+          git commit -m "Answer eval $RUN_ID: answers, code checks and DeepEval scores" || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
