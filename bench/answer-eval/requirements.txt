@@ -1,0 +1,7 @@
+# Answer eval only (chunking_lab.answer_eval). Kept out of pipeline/uv.lock on purpose: DeepEval pins older
+# click / huggingface-hub than the pipeline uses. Run from pipeline/:
+#   uv run --no-project --python 3.12 --with-requirements ../bench/answer-eval/requirements.txt \
+#     python -m chunking_lab.answer_eval run --run-id first
+anthropic==1.15.0
+deepeval==4.3.1
+httpx>=0.27

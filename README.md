@@ -31,6 +31,7 @@ retrieval quality, run over **1,000+ SEC 10-K filings**.
 | [docs/PLAN.md](docs/PLAN.md) | Goal, scope, milestones, decisions, risks |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Canonical representation, layouts, retrieval and context construction, storage, UI, ADRs |
 | [docs/TEST_STRATEGY.md](docs/TEST_STRATEGY.md) | Software tests, corpus checks, the three benchmarks, hypotheses, system checks, statistics, CI gates |
+| [bench/answer-eval/README.md](bench/answer-eval/README.md) | Answer eval: code checks, DeepEval (faithfulness, relevancy, recall, GEval judge) and judge-vs-human calibration |
 
 ## Stack
 

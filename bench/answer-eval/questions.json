@@ -1,0 +1,275 @@
+{
+ "note": "Answer-quality eval set. G- questions are copied from bench/questions.json (reference answer and the exact answer sentence in the filing). U- questions have no answer in the indexed filings: the correct behaviour is to say so.",
+ "questions": [
+  {
+   "id": "G-001",
+   "ticker": "LEN",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "What was Lennar's gross margin on home sales in 2025, and how does it compare with 2024?",
+   "answer": "17.7% in 2025, down from 22.3% in 2024.",
+   "quote": "Gross margins on home sales were $5.7 billion, or 17.7%, in the year ended November 30, 2025, compared to $7.5 billion, or 22.3%, in the year ended November 30, 2024."
+  },
+  {
+   "id": "G-002",
+   "ticker": "LEN",
+   "qtype": "factual",
+   "answerable": true,
+   "question": "Why did Lennar's homebuilding margins fall?",
+   "answer": "Lower revenue per square foot and higher land costs.",
+   "quote": "gross margins decreased primarily due to a lower revenue per square foot and higher land costs year over year"
+  },
+  {
+   "id": "G-003",
+   "ticker": "PHM",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "How did PulteGroup's gross margin from home sales change in 2025?",
+   "answer": "Down to 26.3% from 28.9%.",
+   "quote": "gross margin from home sales, which decreased to 26.3% in 2025 versus 28.9% in 2024"
+  },
+  {
+   "id": "G-005",
+   "ticker": "AMP",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "How much did Ameriprise's total assets under management grow in 2025?",
+   "answer": "Up $127.0 billion (11%) to $1.3 trillion.",
+   "quote": "Total AUM increased $127.0 billion, or 11%, to $1.3 trillion as of December 31, 2025"
+  },
+  {
+   "id": "G-006",
+   "ticker": "MRSH",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "How much consulting revenue did Marsh report for 2025?",
+   "answer": "$9.8 billion, up 7%.",
+   "quote": "Consulting revenue in 2025 was $9.8 billion, an increase of 7%, or 5% on an underlying basis."
+  },
+  {
+   "id": "G-007",
+   "ticker": "LMT",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "By how much did Lockheed Martin's product sales rise in 2025?",
+   "answer": "$3.4 billion, or 6%.",
+   "quote": "Product sales increased $3.4 billion, or 6%, in 2025 as compared to 2024."
+  },
+  {
+   "id": "G-008",
+   "ticker": "LMT",
+   "qtype": "factual",
+   "answerable": true,
+   "question": "Which Lockheed Martin business areas drove the growth in product sales?",
+   "answer": "MFC ($1.7B), Aeronautics ($1.0B) and Space ($475M).",
+   "quote": "higher product sales of approximately $1.7 billion at MFC, $1.0 billion at Aeronautics, and $475 million at Space"
+  },
+  {
+   "id": "G-009",
+   "ticker": "DLTR",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "What was Dollar Tree's comparable store sales growth for the year?",
+   "answer": "5.3%.",
+   "quote": "Net sales increased 10.4% to $19,395.7 million due to a 5.3% comparable store net sales increase"
+  },
+  {
+   "id": "G-011",
+   "ticker": "ORLY",
+   "qtype": "factual",
+   "answerable": true,
+   "question": "Why did O'Reilly's gross margin percentage improve?",
+   "answer": "Improved acquisition costs and distribution efficiencies.",
+   "quote": "was due to improved acquisition costs and distribution operating efficiencies"
+  },
+  {
+   "id": "G-012",
+   "ticker": "GOOG",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "How fast did Google Cloud revenue grow last year?",
+   "answer": "Up $15.5 billion, or 36%.",
+   "quote": "an increase in Google Cloud revenues of $15.5 billion, or 36%"
+  },
+  {
+   "id": "G-013",
+   "ticker": "GOOG",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "What were Alphabet's total revenues and growth rate?",
+   "answer": "$402.8 billion, up 15%.",
+   "quote": "Revenues were $402.8 billion, an increase of 15% year over year"
+  },
+  {
+   "id": "G-014",
+   "ticker": "FOX",
+   "qtype": "factual",
+   "answerable": true,
+   "question": "Why did Fox's operating expenses increase in fiscal 2025?",
+   "answer": "Higher sports rights amortization and production costs, mainly NFL.",
+   "quote": "Operating expenses increased $1.4 billion or 16% for fiscal 2025, as compared to fiscal 2024, primarily due to the approximately $1 billion impact of higher sports programming rights amortization and production costs driven by higher NFL costs"
+  },
+  {
+   "id": "G-015",
+   "ticker": "CMS",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "How large an annual electric rate increase did Michigan regulators authorize for Consumers Energy in March 2025?",
+   "answer": "$176 million.",
+   "quote": "authorizing an annual rate increase of $176 million"
+  },
+  {
+   "id": "G-016",
+   "ticker": "FIX",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "How many employees did Comfort Systems USA have at the end of 2025?",
+   "answer": "About 22,700, up from 18,300.",
+   "quote": "we had approximately 22,700 employees as compared to approximately 18,300 employees as of December 31, 2024"
+  },
+  {
+   "id": "G-018",
+   "ticker": "MOS",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "How many employees does Mosaic have, and how many are hourly?",
+   "answer": "13,249, of whom about 3,335 are hourly.",
+   "quote": "We had 13,249 employees as of December 31, 2025, consisting of approximately 9,914 salaried and 3,335 hourly employees."
+  },
+  {
+   "id": "G-023",
+   "ticker": "JBL",
+   "qtype": "factual",
+   "answerable": true,
+   "question": "Across how many locations and countries does Jabil's workforce operate?",
+   "answer": "About 100 locations in 30 countries.",
+   "quote": "employees across approximately 100 locations in 30 countries"
+  },
+  {
+   "id": "G-024",
+   "ticker": "HSY",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "What share of Hershey's sales goes to McLane?",
+   "answer": "About 27%.",
+   "quote": "approximately 27% of our consolidated net sales were made to McLane Company, Inc."
+  },
+  {
+   "id": "G-030",
+   "ticker": "CBOE",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "How concentrated is Cboe's customer base?",
+   "answer": "Top ten customers were about 57% of revenues.",
+   "quote": "our top ten customers accounted for approximately 57% of our revenues"
+  },
+  {
+   "id": "G-033",
+   "ticker": "MNST",
+   "qtype": "factual",
+   "answerable": true,
+   "question": "Which bottler is one of Monster Beverage's biggest customers?",
+   "answer": "Coca-Cola Consolidated, about 10% of net sales.",
+   "quote": "Coca-Cola Consolidated, Inc. accounted for approximately 10% of our net sales"
+  },
+  {
+   "id": "G-034",
+   "ticker": "CF",
+   "qtype": "factual",
+   "answerable": true,
+   "question": "Who is CF Industries' largest customer?",
+   "answer": "CHS, about 13% of net sales.",
+   "quote": "CHS was our largest customer in 2025 and accounted for approximately 13% of our consolidated net sales."
+  },
+  {
+   "id": "G-041",
+   "ticker": "DLR",
+   "qtype": "factual",
+   "answerable": true,
+   "question": "How much of Digital Realty's revenue comes from data centers it leases rather than owns?",
+   "answer": "About 14%.",
+   "quote": "These leased buildings accounted for approximately 14% of our total revenue"
+  },
+  {
+   "id": "G-042",
+   "ticker": "IDXX",
+   "qtype": "numeric",
+   "answerable": true,
+   "question": "What share of IDEXX's revenue is recurring diagnostic revenue?",
+   "answer": "About 79%.",
+   "quote": "recurring diagnostic revenue, which is both highly durable and profitable, accounted for approximately 79% of our consolidated revenue"
+  },
+  {
+   "id": "G-044",
+   "ticker": "LH",
+   "qtype": "factual",
+   "answerable": true,
+   "question": "How is Labcorp's revenue split between its two segments?",
+   "answer": "Diagnostics about 78%, Biopharma Laboratory Services about 22%.",
+   "quote": "In 2025 and 2024, Dx and BLS contributed approximately 78% and 22%, respectively, of Revenues to the Company."
+  },
+  {
+   "id": "G-045",
+   "ticker": "EXE",
+   "qtype": "factual",
+   "answerable": true,
+   "question": "Where are Expand Energy's natural gas operations located?",
+   "answer": "Haynesville/Bossier (LA, TX) and the Marcellus/Utica in Appalachia.",
+   "quote": "Our operations are located in Louisiana and Texas in the Haynesville and Bossier Shales"
+  },
+  {
+   "id": "G-047",
+   "ticker": "GWW",
+   "qtype": "factual",
+   "answerable": true,
+   "question": "What are Grainger's reportable segments?",
+   "answer": "High-Touch Solutions N.A. and Endless Assortment.",
+   "quote": "Grainger's two reportable segments are High-Touch Solutions North America (High-Touch Solutions N.A.) and Endless Assortment."
+  },
+  {
+   "id": "U-001",
+   "ticker": "LEN",
+   "qtype": "unanswerable",
+   "answerable": false,
+   "question": "What was Lennar's CEO's total compensation in 2025?",
+   "answer": "The filings do not contain this. The answer should say the passages don't answer it.",
+   "why": "Executive pay is in the proxy statement, not the 10-K sections indexed here (Items 1, 1A, 7, 7A)."
+  },
+  {
+   "id": "U-002",
+   "ticker": "GOOG",
+   "qtype": "unanswerable",
+   "answerable": false,
+   "question": "What was Google Cloud's revenue in 2015?",
+   "answer": "The filings do not contain this. The answer should say the passages don't answer it.",
+   "why": "FY2024-FY2025 10-Ks only cover recent years."
+  },
+  {
+   "id": "U-003",
+   "ticker": "HSY",
+   "qtype": "unanswerable",
+   "answerable": false,
+   "question": "What will Hershey's net sales be in 2027?",
+   "answer": "The filings do not contain this. The answer should say the passages don't answer it.",
+   "why": "A 10-K does not forecast two years ahead."
+  },
+  {
+   "id": "U-004",
+   "ticker": "ABNB",
+   "qtype": "unanswerable",
+   "answerable": false,
+   "question": "What was Airbnb's closing share price on the last trading day of 2025?",
+   "answer": "The filings do not contain this. The answer should say the passages don't answer it.",
+   "why": "Share prices are not in the indexed 10-K sections."
+  },
+  {
+   "id": "U-005",
+   "ticker": null,
+   "qtype": "unanswerable",
+   "answerable": false,
+   "question": "How many employees does SpaceX have?",
+   "answer": "The filings do not contain this. The answer should say the passages don't answer it.",
+   "why": "SpaceX is private and files no 10-K."
+  }
+ ]
+}
