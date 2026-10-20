@@ -40,7 +40,8 @@ QUESTIONS = ROOT / "bench" / "answer-eval" / "questions.json"
 RUNS = ROOT / "bench" / "answer-eval" / "runs"
 ANSWER_TS = ROOT / "apps" / "web" / "src" / "lib" / "answer.ts"
 
-APP_URL = "https://web-ashen-three-fts4191pu8.vercel.app"
+# The custom domain: *.vercel.app URLs of this project sit behind Vercel SSO protection.
+APP_URL = "https://rag.conradlotz.com"
 # Production configuration as served by the app: structural.max256.hybrid.k10.b4000.
 EMBEDDING_SET = "f6370073-02c1-4923-aca2-7b27e817a84a"
 RETRIEVAL = {"mode": "hybrid", "k": 10, "policy": "static", "budget": 4000}
