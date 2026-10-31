@@ -6,7 +6,7 @@ import { Chip, EmptyState, PageHeader, Section, Stat } from "@/components/ui";
 import { api, getSession } from "@/lib/data";
 import { bytes, compact, configName, int, ms, when } from "@/lib/format";
 
-export const metadata = { title: "Corpus" };
+export const metadata = { title: "Corpus", alternates: { canonical: "/corpus" } };
 
 export default async function OverviewPage() {
   const a = api(await getSession());

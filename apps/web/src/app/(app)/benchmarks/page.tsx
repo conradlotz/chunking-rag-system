@@ -5,7 +5,7 @@ import { SweepExplorer } from "@/components/SweepExplorer";
 import { api, getSession } from "@/lib/data";
 import { chunkSizeVerdict, multiCells } from "@/lib/verdict";
 
-export const metadata = { title: "Benchmarks" };
+export const metadata = { title: "Benchmarks", alternates: { canonical: "/benchmarks" } };
 
 export default async function BenchmarksPage() {
   const session = await getSession();

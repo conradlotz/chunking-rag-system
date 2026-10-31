@@ -1,10 +1,31 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
+const siteUrl = "https://rag.conradlotz.com";
+const title = "Chunking Lab — how chunking and search choices shape RAG retrieval";
+const description =
+  "A RAG research lab over SEC 10-K filings measuring how document structure, chunking strategy, hybrid retrieval and context construction change what a retriever finds. By Conrad Lotz.";
+
 export const metadata: Metadata = {
-  title: { default: "Chunking Lab", template: "%s · Chunking Lab" },
-  description: "Measuring how document structure and chunking strategy change what a retriever finds in SEC 10-K filings.",
-  robots: { index: false, follow: false },
+  metadataBase: new URL(siteUrl),
+  title: { default: title, template: "%s · Chunking Lab" },
+  description,
+  applicationName: "Chunking Lab",
+  authors: [{ name: "Conrad Lotz", url: "https://www.conradlotz.com" }],
+  creator: "Conrad Lotz",
+  openGraph: {
+    type: "website",
+    siteName: "Chunking Lab",
+    url: siteUrl,
+    title,
+    description,
+  },
+  twitter: {
+    card: "summary",
+    creator: "@conradlotz",
+    title,
+    description,
+  },
 };
 
 export const viewport: Viewport = {
