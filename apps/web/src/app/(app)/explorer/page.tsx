@@ -4,7 +4,7 @@ import { Chip, EmptyState, PageHeader } from "@/components/ui";
 import { api, getSession } from "@/lib/data";
 import { compact, int } from "@/lib/format";
 
-export const metadata = { title: "Explorer" };
+export const metadata = { title: "Explorer", alternates: { canonical: "/explorer" } };
 
 export default async function ExplorerPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const { q } = await searchParams;

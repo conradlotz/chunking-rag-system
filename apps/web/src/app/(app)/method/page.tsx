@@ -6,7 +6,7 @@ import { PageHeader, Section } from "@/components/ui";
 import { compact, int } from "@/lib/format";
 import { api, getSession } from "@/lib/data";
 
-export const metadata = { title: "How it works" };
+export const metadata = { title: "How it works", alternates: { canonical: "/method" } };
 
 /** One step of the plain walkthrough at the top of the page. */
 function Walk({

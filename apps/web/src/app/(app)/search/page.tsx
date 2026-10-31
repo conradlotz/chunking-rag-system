@@ -5,7 +5,7 @@ import { CompareRank } from "@/components/CompareRank";
 import { RetrievalLab, type LabInitial } from "@/components/RetrievalLab";
 import { api, getSession } from "@/lib/data";
 
-export const metadata = { title: "Search" };
+export const metadata = { title: "Search", alternates: { canonical: "/search" } };
 
 type SP = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);

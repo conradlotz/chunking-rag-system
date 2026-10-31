@@ -63,6 +63,12 @@ export function Shell({
               <div className="text-[11px] text-muted">
                 SEC 10-K retrieval research
               </div>
+              <a
+                href="https://www.conradlotz.com"
+                className="text-[11px] text-muted underline-offset-2 hover:text-ink hover:underline"
+              >
+                by Conrad Lotz
+              </a>
             </div>
           </div>
           <div className="lg:hidden">
